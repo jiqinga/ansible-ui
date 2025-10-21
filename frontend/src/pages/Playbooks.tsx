@@ -35,8 +35,6 @@ const Playbooks: React.FC = () => {
   const { success, error } = useNotification()
 
   // 📁 Playbook列表状态
-  const [playbooks, setPlaybooks] = useState<any[]>([])
-  const [totalPlaybooks, setTotalPlaybooks] = useState(0)
   const [selectedPlaybook, setSelectedPlaybook] = useState<any | null>(null)
 
   // 📝 编辑器状态
@@ -65,11 +63,10 @@ const Playbooks: React.FC = () => {
     setIsLoading(true)
     try {
       const result = await PlaybookService.getPlaybooks(1, 100, search)
-      setPlaybooks(result.items)
       setFilteredPlaybooks(result.items)
-      setTotalPlaybooks(result.total)
-    } catch (err) {
-      error('❌ 加载Playbook列表失败')
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || err.message || '无法加载文件列表'
+      error(`❌ ${errorMsg}`)
     } finally {
       setIsLoading(false)
     }
@@ -89,8 +86,9 @@ const Playbooks: React.FC = () => {
 
       // 🔄 自动验证
       validateContent(response.content)
-    } catch (err) {
-      error('❌ 加载Playbook内容失败')
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || err.message || '无法读取文件内容'
+      error(`❌ 加载失败：${errorMsg}`)
     } finally {
       setIsLoading(false)
     }
@@ -127,12 +125,13 @@ const Playbooks: React.FC = () => {
       await PlaybookService.savePlaybookContent(selectedPlaybook.file_path || `playbooks/${selectedPlaybook.filename}`, editorContent)
       setOriginalContent(editorContent)
       setIsModified(false)
-      success('✅ Playbook保存成功')
+      success(`✅ ${selectedPlaybook.filename} 保存成功`)
 
       // 重新加载列表
       loadPlaybooks(searchTerm)
-    } catch (err) {
-      error('❌ 保存Playbook失败')
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || err.message || '保存失败'
+      error(`❌ ${errorMsg}`)
     } finally {
       setIsSaving(false)
     }
@@ -144,11 +143,11 @@ const Playbooks: React.FC = () => {
   const createNewFile = useCallback(async () => {
     if (!newFileName.trim()) return
 
-    try {
-      const fileName = newFileName.endsWith('.yml') || newFileName.endsWith('.yaml')
-        ? newFileName
-        : `${newFileName}.yml`
+    const fileName = newFileName.endsWith('.yml') || newFileName.endsWith('.yaml')
+      ? newFileName
+      : `${newFileName}.yml`
 
+    try {
       await PlaybookService.createPlaybook({
         filename: fileName,
         content: `---
@@ -165,22 +164,28 @@ const Playbooks: React.FC = () => {
 
       setNewFileName('')
       setShowCreateModal(false)
-      success('✅ Playbook创建成功')
+      success(`✅ 文件 ${fileName} 创建成功`)
 
       // 🔄 重新加载列表
       loadPlaybooks(searchTerm)
     } catch (err: any) {
       console.error('❌ 创建文件失败', err)
 
-      // 🔍 解析错误信息
+      // 🔍 解析错误信息，提供更友好的提示
       if (err.response?.status === 409) {
-        // 显示后端返回的具体错误信息
-        const errorMsg = err.response?.data?.detail || err.message || '文件名已存在，请使用其他名称'
-        error(`❌ ${errorMsg}`)
+        // 文件名冲突 - 提供清晰的说明和建议
+        error(`📁 文件名冲突：${fileName} 已经存在，请尝试使用其他名称`)
+      } else if (err.response?.status === 400) {
+        // 请求参数错误
+        const errorMsg = err.response?.data?.detail || '文件名格式不正确，请使用有效的文件名'
+        error(`⚠️ ${errorMsg}`)
+      } else if (err.response?.data?.detail) {
+        // 显示后端返回的详细错误信息
+        error(`❌ ${err.response.data.detail}`)
       } else if (err.message) {
-        error(`❌ ${err.message}`)
+        error(`❌ 创建失败：${err.message}`)
       } else {
-        error('❌ 创建文件失败，请稍后重试')
+        error('❌ 创建文件失败，请检查网络连接后重试')
       }
     }
   }, [newFileName, searchTerm, loadPlaybooks, success, error])
@@ -189,11 +194,11 @@ const Playbooks: React.FC = () => {
    * 🗑️ 删除Playbook
    */
   const deletePlaybook = useCallback(async (playbook: any) => {
-    if (!confirm(`确定要删除 ${playbook.filename} 吗？`)) return
+    if (!confirm(`⚠️ 确定要删除 ${playbook.filename} 吗？\n\n此操作无法撤销。`)) return
 
     try {
       await PlaybookService.deletePlaybook(playbook.file_path || `playbooks/${playbook.filename}`)
-      success('✅ Playbook删除成功')
+      success(`✅ ${playbook.filename} 已删除`)
 
       // 🔄 重新加载列表
       loadPlaybooks(searchTerm)
@@ -206,8 +211,9 @@ const Playbooks: React.FC = () => {
         setIsModified(false)
         setValidationResult(null)
       }
-    } catch (err) {
-      error('❌ 删除Playbook失败')
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || err.message || '删除失败'
+      error(`❌ ${errorMsg}`)
     }
   }, [searchTerm, loadPlaybooks, selectedPlaybook, success, error])
 
@@ -647,10 +653,22 @@ const Playbooks: React.FC = () => {
               value={newFileName}
               onChange={(e) => setNewFileName(e.target.value)}
               autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newFileName.trim()) {
+                  createNewFile()
+                }
+              }}
             />
 
-            <div className="text-sm text-white/60">
-              💡 文件将自动添加 .yml 扩展名（如果未指定）
+            <div className="space-y-2 text-sm text-white/70">
+              <div className="flex items-start gap-2">
+                <span>💡</span>
+                <span>文件将自动添加 .yml 扩展名（如果未指定）</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span>📌</span>
+                <span>文件名不能与现有文件重复</span>
+              </div>
             </div>
 
             <div className="flex gap-3 justify-end">
@@ -667,6 +685,7 @@ const Playbooks: React.FC = () => {
                 onClick={createNewFile}
                 disabled={!newFileName.trim()}
               >
+                <PlusIcon className="w-4 h-4 mr-2" />
                 创建文件
               </GlassButton>
             </div>
