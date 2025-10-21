@@ -1,0 +1,238 @@
+/* 🎨 Tailwind CSS 基础样式 */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 🎨 全局基础样式 */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    @apply font-sans antialiased;
+    /* 🎨 确保全屏渐变背景 */
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  
+  /* 🎨 滚动条样式 */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    transition: background 0.3s ease;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
+  }
+  
+  /* 🎨 选择文本样式 */
+  ::selection {
+    background: rgba(102, 126, 234, 0.3);
+    color: #2d3748;
+  }
+  
+  /* 🎨 焦点样式 */
+  :focus-visible {
+    outline: 2px solid rgba(102, 126, 234, 0.6);
+    outline-offset: 2px;
+  }
+}
+
+/* 🎨 玻璃态组件样式 */
+@layer components {
+  /* 🎨 玻璃态卡片变体 */
+  .glass-card-primary {
+    @apply glass-container bg-white/70;
+  }
+  
+  .glass-card-secondary {
+    @apply glass-container bg-white/50;
+  }
+  
+  .glass-card-dark {
+    @apply glass-container bg-white/35 border-white/40;
+  }
+  
+  /* 🎨 玻璃态按钮变体 */
+  .glass-btn-primary {
+    @apply glass-button bg-white/60 hover:bg-white/70 text-glass-text-primary;
+  }
+  
+  .glass-btn-secondary {
+    @apply glass-button bg-white/45 hover:bg-white/60 text-glass-text-secondary;
+  }
+  
+  .glass-btn-danger {
+    @apply glass-button bg-red-500/30 hover:bg-red-500/40 text-red-700 border-red-500/40;
+  }
+  
+  .glass-btn-success {
+    @apply glass-button bg-green-500/30 hover:bg-green-500/40 text-green-700 border-green-500/40;
+  }
+  
+  /* 🎨 玻璃态输入框变体 */
+  .glass-input-primary {
+    @apply glass-input bg-white/60 border-white/40 text-glass-text-primary placeholder:text-glass-text-secondary/70;
+  }
+  
+  .glass-input-search {
+    @apply glass-input-primary pl-10;
+  }
+  
+  /* 🎨 玻璃态导航样式 */
+  .glass-nav-primary {
+    @apply glass-nav bg-white/40 backdrop-blur-glass-strong border-b border-white/30;
+  }
+  
+  /* 🎨 玻璃态模态框 */
+  .glass-modal {
+    @apply glass-container bg-white/30 backdrop-blur-glass-strong;
+  }
+  
+  /* 🎨 玻璃态工具提示 */
+  .glass-tooltip {
+    @apply glass-container bg-white/90 text-glass-text-primary text-sm py-2 px-3 rounded-glass-sm;
+  }
+}
+
+/* 🎨 工具类 */
+@layer utilities {
+  /* 🎨 文本渐变效果 */
+  .text-gradient-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  .text-gradient-secondary {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* 🎨 在深色玻璃背景上增强文字可读性 */
+  .glass-text-contrast {
+    color: rgba(255, 255, 255, 0.92);
+    text-shadow: 0 8px 24px rgba(15, 23, 42, 0.45);
+  }
+
+  .glass-text-contrast-subtle {
+    color: rgba(255, 255, 255, 0.8);
+    text-shadow: 0 4px 16px rgba(15, 23, 42, 0.35);
+  }
+  
+  /* 🎨 动画工具类 */
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+  
+  .animate-pulse-slow {
+    animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  
+  .animate-bounce-subtle {
+    animation: bounce-subtle 2s infinite;
+  }
+  
+  /* 🎨 玻璃态悬浮效果 */
+  .glass-hover {
+    @apply transition-all duration-glass ease-glass;
+  }
+  
+  .glass-hover:hover {
+    @apply -translate-y-1 shadow-glass-hover;
+  }
+  
+  /* 🎨 响应式隐藏/显示 */
+  .glass-mobile-only {
+    @apply block glass-tablet:hidden glass-desktop:hidden;
+  }
+  
+  .glass-desktop-only {
+    @apply hidden glass-desktop:block;
+  }
+  
+  .glass-tablet-up {
+    @apply hidden glass-tablet:block glass-desktop:block;
+  }
+}
+
+/* 🎨 自定义动画关键帧 */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes bounce-subtle {
+  0%, 100% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
+  }
+  50% {
+    transform: translateY(-5px);
+    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+  }
+}
+
+/* 🎨 打印样式 */
+@media print {
+  .glass-container,
+  .glass-button,
+  .glass-input {
+    background: white !important;
+    backdrop-filter: none !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: none !important;
+  }
+  
+  .gradient-bg-primary,
+  .gradient-bg-secondary,
+  .gradient-bg-tertiary {
+    background: white !important;
+  }
+}
+
+/* 🎨 高对比度模式支持 */
+@media (prefers-contrast: high) {
+  .glass-container {
+    background: rgba(255, 255, 255, 0.9) !important;
+    border: 2px solid rgba(0, 0, 0, 0.8) !important;
+  }
+  
+  .glass-button {
+    background: rgba(255, 255, 255, 0.9) !important;
+    border: 2px solid rgba(0, 0, 0, 0.8) !important;
+    color: #000000 !important;
+  }
+}
+
+/* 🎨 减少动画偏好支持 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

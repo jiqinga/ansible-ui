@@ -1,0 +1,147 @@
+/* 🎨 App组件特定样式 */
+
+.App {
+  /* 🎨 确保应用占满全屏 */
+  min-height: 100vh;
+  position: relative;
+}
+
+/* 🎨 路由过渡动画容器 */
+.route-container {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* 🎨 页面过渡动画 */
+.page-transition-enter {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.page-transition-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms ease-out, transform 300ms ease-out;
+}
+
+.page-transition-exit {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.page-transition-exit-active {
+  opacity: 0;
+  transform: translateY(-20px);
+  transition: opacity 300ms ease-in, transform 300ms ease-in;
+}
+
+/* 🎨 加载状态样式 */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(102, 126, 234, 0.1);
+  backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top: 3px solid #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* 🎨 错误边界样式 */
+.error-boundary {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.error-content {
+  text-align: center;
+  max-width: 500px;
+}
+
+.error-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+  opacity: 0.7;
+}
+
+.error-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #2d3748;
+  margin-bottom: 1rem;
+}
+
+.error-message {
+  color: #718096;
+  margin-bottom: 2rem;
+  line-height: 1.6;
+}
+
+/* 🎨 响应式调整 */
+@media (max-width: 768px) {
+  .App {
+    /* 🎨 移动端优化 */
+    overflow-x: hidden;
+  }
+  
+  .loading-overlay {
+    backdrop-filter: blur(3px);
+  }
+  
+  .error-content {
+    padding: 1rem;
+  }
+  
+  .error-icon {
+    font-size: 3rem;
+  }
+  
+  .error-title {
+    font-size: 1.25rem;
+  }
+}
+
+/* 🎨 深色模式支持（预留） */
+@media (prefers-color-scheme: dark) {
+  .App {
+    /* 🎨 深色模式下的背景调整 */
+    background: linear-gradient(135deg, #4c51bf 0%, #553c9a 100%);
+  }
+}
+
+/* 🎨 高性能模式（减少视觉效果） */
+@media (prefers-reduced-motion: reduce) {
+  .page-transition-enter,
+  .page-transition-enter-active,
+  .page-transition-exit,
+  .page-transition-exit-active {
+    transition: none;
+    transform: none;
+  }
+  
+  .loading-spinner {
+    animation: none;
+    border: 3px solid #667eea;
+  }
+}
