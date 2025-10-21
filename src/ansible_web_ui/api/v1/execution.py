@@ -54,7 +54,7 @@ class ConnectionManager:
         self.active_connections: List[WebSocket] = []
         self.task_connections: dict = {}  # task_id -> [websockets]
     
-    async def connect(self, websocket: WebSocket, task_id: str):
+    async def connect(self, websocket: WebSocket, task_id: str, user_id: Optional[int] = None):
         """建立WebSocket连接"""
         await websocket.accept()
         self.active_connections.append(websocket)
@@ -63,9 +63,9 @@ class ConnectionManager:
             self.task_connections[task_id] = []
         self.task_connections[task_id].append(websocket)
         
-        logger.info(f"WebSocket连接建立: 任务ID={task_id}")
+        logger.info(f"WebSocket连接建立: 任务ID={task_id}, 用户ID={user_id}")
     
-    def disconnect(self, websocket: WebSocket, task_id: str):
+    async def disconnect(self, websocket: WebSocket, task_id: str):
         """断开WebSocket连接"""
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
@@ -506,15 +506,31 @@ async def test_connection(
 
 
 @router.websocket("/tasks/{task_id}/logs/stream")
-async def websocket_task_logs(websocket: WebSocket, task_id: str):
+async def websocket_task_logs(
+    websocket: WebSocket, 
+    task_id: str,
+    token: str = None
+):
     """
     WebSocket实时日志流
     
     通过WebSocket连接实时推送任务执行日志。
     
     - **task_id**: 任务ID
+    - **token**: 认证令牌（通过查询参数传递）
     """
-    await manager.connect(websocket, task_id)
+    # 验证token（可选，如果需要认证）
+    user_id = None
+    if token:
+        try:
+            from ansible_web_ui.auth.security import verify_token
+            payload = verify_token(token)
+            user_id = payload.get("sub")
+        except Exception as e:
+            logger.warning(f"WebSocket认证失败: {e}")
+            # 继续连接，但不设置user_id
+    
+    await manager.connect(websocket, task_id, user_id=user_id)
     
     try:
         # 发送连接成功消息
@@ -563,7 +579,7 @@ async def websocket_task_logs(websocket: WebSocket, task_id: str):
     except Exception as e:
         logger.error(f"WebSocket连接异常: {e}")
     finally:
-        manager.disconnect(websocket, task_id)
+        await manager.disconnect(websocket, task_id)
 
 
 # 实时日志推送函数（供任务使用）

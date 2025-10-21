@@ -200,25 +200,31 @@ export const Execution: React.FC = () => {
    */
   const setupWebSocketConnection = (taskId: string) => {
     if (!taskId) {
+      console.warn('⚠️ taskId为空，无法建立WebSocket连接')
       return
     }
 
+    console.log('🔗 准备建立WebSocket连接，taskId:', taskId)
+
     // 关闭已存在的连接
     if (wsRef.current) {
+      console.log('🔌 关闭现有WebSocket连接')
       wsRef.current.close()
       wsRef.current = null
     }
 
     try {
       // 建立新的连接
+      console.log('🚀 开始建立WebSocket连接...')
       wsRef.current = executionService.createWebSocketConnection(
         taskId,
         handleWebSocketMessage,
         handleWebSocketError,
         handleWebSocketClose
       )
+      console.log('✅ WebSocket连接对象已创建')
     } catch (error) {
-      console.error('Failed to establish WebSocket connection:', error)
+      console.error('❌ 建立WebSocket连接失败:', error)
       wsRef.current = null
       setExecuting(false)
       const message = error instanceof Error ? error.message : '实时日志连接建立失败，请重新登录后重试'

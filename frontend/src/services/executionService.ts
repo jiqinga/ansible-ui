@@ -285,17 +285,22 @@ export class ExecutionService {
   private resolveAuthToken(): string | null {
     const directToken = apiUtils.getToken()
     if (directToken) {
+      console.log('🔑 使用直接token')
       return directToken
     }
 
     const stored = localStorage.getItem('access_token')
     if (!stored) {
+      console.warn('⚠️ 未找到access_token')
       return null
     }
 
     try {
-      return JSON.parse(stored)
+      const parsed = JSON.parse(stored)
+      console.log('🔑 使用localStorage中的token (已解析)')
+      return parsed
     } catch {
+      console.log('🔑 使用localStorage中的token (原始)')
       return stored
     }
   }
@@ -306,7 +311,9 @@ export class ExecutionService {
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     url.searchParams.set('token', token)
     url.searchParams.set('client', 'web')
-    return url.toString()
+    const wsUrl = url.toString()
+    console.log('🔗 WebSocket URL:', wsUrl)
+    return wsUrl
   }
 
   private async parseWebSocketPayload(event: MessageEvent): Promise<WebSocketMessage | null> {
