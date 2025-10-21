@@ -42,7 +42,8 @@ class PlaybookUpdate(BaseModel):
 class PlaybookInfo(PlaybookBase):
     """Playbook信息响应模式"""
     id: int = Field(..., description="ID")
-    file_path: str = Field(..., description="文件路径")
+    project_id: Optional[int] = Field(None, description="所属项目ID")
+    file_path: Optional[str] = Field(None, description="文件路径（缓存路径）")
     file_size: int = Field(..., description="文件大小（字节）")
     file_hash: Optional[str] = Field(None, description="文件哈希值")
     is_valid: bool = Field(..., description="是否有效")
@@ -94,7 +95,7 @@ class PlaybookUploadResponse(BaseModel):
     """文件上传响应模式"""
     filename: str = Field(..., description="文件名")
     file_size: int = Field(..., description="文件大小")
-    upload_path: str = Field(..., description="上传路径")
+    upload_path: Optional[str] = Field(None, description="上传路径（缓存路径）")
     is_valid: bool = Field(..., description="是否有效")
     validation_result: Optional[PlaybookValidationResult] = Field(None, description="验证结果")
 
