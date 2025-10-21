@@ -109,8 +109,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   /**
    * 🚀 API基础URL配置
+   * 注意：如果环境变量未设置，默认值已包含 /api/v1 路径
    */
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL 
+    ? `${import.meta.env.VITE_API_BASE_URL}/api/v1`
+    : 'http://localhost:8000/api/v1'
 
   /**
    * 🌐 API请求工具函数
