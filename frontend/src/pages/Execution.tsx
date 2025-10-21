@@ -122,7 +122,7 @@ export const Execution: React.FC = () => {
       ])
 
       // 转换Playbook数据
-      const playbookOptions = playbooksData
+      const playbookOptions = (playbooksData.items || [])
         .filter(pb => !pb.is_directory)
         .map((pb) => ({
           value: pb.path,

@@ -169,8 +169,19 @@ const Playbooks: React.FC = () => {
 
       // 🔄 重新加载列表
       loadPlaybooks(searchTerm)
-    } catch (error) {
-      console.error('❌ 创建文件失败', error)
+    } catch (err: any) {
+      console.error('❌ 创建文件失败', err)
+
+      // 🔍 解析错误信息
+      if (err.response?.status === 409) {
+        // 显示后端返回的具体错误信息
+        const errorMsg = err.response?.data?.detail || err.message || '文件名已存在，请使用其他名称'
+        error(`❌ ${errorMsg}`)
+      } else if (err.message) {
+        error(`❌ ${err.message}`)
+      } else {
+        error('❌ 创建文件失败，请稍后重试')
+      }
     }
   }, [newFileName, searchTerm, loadPlaybooks, success, error])
 

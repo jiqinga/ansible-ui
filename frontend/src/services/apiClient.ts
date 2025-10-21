@@ -136,6 +136,10 @@ apiClient.interceptors.response.use(
         case 404:
           error.message = '请求的资源不存在'
           break
+        case 409:
+          // 处理冲突错误（如文件名重复）
+          error.message = data?.detail || '资源冲突'
+          break
         case 422:
           // 处理验证错误
           if (data?.detail && Array.isArray(data.detail)) {

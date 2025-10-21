@@ -163,11 +163,12 @@ export class PlaybookService {
    */
   static async createPlaybook(request: CreatePlaybookRequest): Promise<PlaybookFile> {
     try {
-      const response = await apiClient.post('/api/v1/playbooks', request)
+      const response = await apiClient.post('/api/v1/playbooks/', request)
       return response.data
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ 创建Playbook失败:', error)
-      throw new Error('创建文件失败，请检查文件名是否已存在')
+      // 🔄 直接抛出原始错误，让调用方处理具体的错误信息
+      throw error
     }
   }
 
