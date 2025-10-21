@@ -105,10 +105,10 @@ export class DashboardService {
         executionsResponse,
         monitoringResponse
       ] = await Promise.all([
-        apiClient.get('/api/v1/inventory/hosts/count'),
-        apiClient.get('/api/v1/playbooks/count'),
-        apiClient.get('/api/v1/history/statistics?period=today'),
-        apiClient.get('/api/v1/monitoring/status/summary')
+        apiClient.get('/inventory/hosts/count'),
+        apiClient.get('/playbooks/count'),
+        apiClient.get('/history/statistics?period=today'),
+        apiClient.get('/monitoring/status/summary')
       ])
 
       return {
@@ -130,7 +130,7 @@ export class DashboardService {
    */
   static async getSystemResources(): Promise<SystemResources> {
     try {
-      const response = await apiClient.get('/api/v1/monitoring/system/resources')
+      const response = await apiClient.get('/monitoring/system/resources')
       return response.data
     } catch (error) {
       console.error('获取系统资源信息失败:', error)

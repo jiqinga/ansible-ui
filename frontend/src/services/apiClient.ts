@@ -21,16 +21,17 @@ declare module 'axios' {
 }
 
 // 🔧 API配置
-// 开发环境使用空字符串，让请求通过Vite代理
-// 生产环境需要设置完整的API地址
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+export const API_PREFIX = '/api/v1' // 统一的API路径前缀，导出供其他模块使用
 const REQUEST_TIMEOUT = 30000 // 30秒超时
 
 /**
  * 创建axios实例
+ * baseURL 会自动拼接 API_BASE_URL + API_PREFIX
+ * 这样所有服务只需要写相对路径，如 '/projects' 而不是 '/api/v1/projects'
  */
 export const apiClient: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: API_BASE_URL ? `${API_BASE_URL}${API_PREFIX}` : API_PREFIX,
   timeout: REQUEST_TIMEOUT,
   headers: {
     'Content-Type': 'application/json',
@@ -48,10 +49,10 @@ apiClient.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
-    
+
     // 添加请求时间戳
     config.metadata = { startTime: new Date() }
-    
+
     return config
   },
   (error) => {
@@ -72,31 +73,31 @@ apiClient.interceptors.response.use(
       const duration = endTime.getTime() - startTime.getTime()
       console.debug(`API请求耗时: ${duration}ms - ${response.config.method?.toUpperCase()} ${response.config.url}`)
     }
-    
+
     return response
   },
   async (error) => {
     const originalRequest = error.config
-    
+
     // 🔄 处理token过期，尝试刷新
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true
-      
+
       try {
         const refreshToken = localStorage.getItem('refresh_token')
         if (refreshToken) {
           const response = await axios.post(`${API_BASE_URL}/api/v1/auth/refresh`, {
             refresh_token: refreshToken
           })
-          
+
           const { access_token, refresh_token: newRefreshToken } = response.data
-          
+
           // 更新存储的token
           localStorage.setItem('access_token', access_token)
           if (newRefreshToken) {
             localStorage.setItem('refresh_token', newRefreshToken)
           }
-          
+
           // 重新发送原始请求
           originalRequest.headers.Authorization = `Bearer ${access_token}`
           return apiClient(originalRequest)
@@ -110,21 +111,21 @@ apiClient.interceptors.response.use(
         return Promise.reject(refreshError)
       }
     }
-    
+
     // 🌐 处理网络错误
     if (error.code === 'NETWORK_ERROR' || error.message === 'Network Error') {
       error.message = '网络连接失败，请检查网络设置'
     }
-    
+
     // ⏱️ 处理超时错误
     if (error.code === 'ECONNABORTED' && error.message.includes('timeout')) {
       error.message = '请求超时，请稍后重试'
     }
-    
+
     // 🔍 处理HTTP状态码错误
     if (error.response) {
       const { status, data } = error.response
-      
+
       switch (status) {
         case 400:
           error.message = data?.detail || '请求参数错误'
@@ -145,7 +146,7 @@ apiClient.interceptors.response.use(
         case 422:
           // 处理验证错误
           if (data?.detail && Array.isArray(data.detail)) {
-            const validationErrors = data.detail.map((err: any) => 
+            const validationErrors = data.detail.map((err: any) =>
               `${err.loc?.join('.')} ${err.msg}`
             ).join(', ')
             error.message = `数据验证失败: ${validationErrors}`
@@ -169,7 +170,7 @@ apiClient.interceptors.response.use(
           error.message = data?.detail || `请求失败 (${status})`
       }
     }
-    
+
     console.error('API请求错误:', {
       url: error.config?.url,
       method: error.config?.method,
@@ -177,7 +178,7 @@ apiClient.interceptors.response.use(
       message: error.message,
       data: error.response?.data
     })
-    
+
     return Promise.reject(error)
   }
 )
@@ -206,14 +207,14 @@ export const apiUtils = {
   isAuthenticated(): boolean {
     return !!localStorage.getItem('access_token')
   },
-  
+
   /**
    * 获取当前用户token
    */
   getToken(): string | null {
     return localStorage.getItem('access_token')
   },
-  
+
   /**
    * 设置认证token
    */
@@ -223,7 +224,7 @@ export const apiUtils = {
       localStorage.setItem('refresh_token', refreshToken)
     }
   },
-  
+
   /**
    * 清除认证信息
    */
@@ -232,13 +233,13 @@ export const apiUtils = {
     localStorage.removeItem('refresh_token')
     localStorage.removeItem('user_info')
   },
-  
+
   /**
    * 构建查询参数
    */
   buildQueryParams(params: Record<string, any>): string {
     const searchParams = new URLSearchParams()
-    
+
     Object.entries(params).forEach(([key, value]) => {
       if (value !== null && value !== undefined && value !== '') {
         if (Array.isArray(value)) {
@@ -248,21 +249,21 @@ export const apiUtils = {
         }
       }
     })
-    
+
     return searchParams.toString()
   },
-  
+
   /**
    * 处理文件上传
    */
   async uploadFile(
-    url: string, 
-    file: File, 
+    url: string,
+    file: File,
     onProgress?: (progress: number) => void
   ): Promise<AxiosResponse> {
     const formData = new FormData()
     formData.append('file', file)
-    
+
     return apiClient.post(url, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
@@ -275,7 +276,7 @@ export const apiUtils = {
       },
     })
   },
-  
+
   /**
    * 下载文件
    */
@@ -283,7 +284,7 @@ export const apiUtils = {
     const response = await apiClient.get(url, {
       responseType: 'blob',
     })
-    
+
     const blob = new Blob([response.data])
     const downloadUrl = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -294,7 +295,7 @@ export const apiUtils = {
     document.body.removeChild(link)
     window.URL.revokeObjectURL(downloadUrl)
   },
-  
+
   /**
    * 批量GET请求（带缓存）
    */

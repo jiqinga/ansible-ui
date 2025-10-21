@@ -276,7 +276,7 @@ export interface GroupPingResult {
  * 📦 Inventory管理服务类
  */
 export class InventoryService {
-  private readonly baseUrl = '/api/v1/inventory';
+  private readonly baseUrl = '/inventory';
 
   // 🏠 主机管理方法
   
@@ -511,7 +511,7 @@ export class InventoryService {
    */
   async getHostExecutionHistory(hostname: string, limit: number = 5): Promise<ExecutionHistory[]> {
     try {
-      const response = await apiClient.get(`/api/v1/execution/host/${hostname}/history`, {
+      const response = await apiClient.get(`/execution/host/${hostname}/history`, {
         params: { limit }
       });
       return response.data.executions || [];

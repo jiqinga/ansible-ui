@@ -95,7 +95,7 @@ export class ConfigService {
    * 📋 获取配置分类列表
    */
   static async getCategories(): Promise<ConfigCategory[]> {
-    const response = await apiClient.get('/api/v1/config/categories')
+    const response = await apiClient.get('/config/categories')
     return response.data.categories
   }
 
@@ -127,7 +127,7 @@ export class ConfigService {
    * 📝 批量更新配置项
    */
   static async batchUpdateConfigs(configs: Record<string, any>): Promise<ConfigUpdateResult> {
-    const response = await apiClient.post('/api/v1/config/batch-update', { configs })
+    const response = await apiClient.post('/config/batch-update', { configs })
     return response.data
   }
 
@@ -135,7 +135,7 @@ export class ConfigService {
    * ✅ 验证配置变更
    */
   static async validateConfigs(configs: Record<string, any>): Promise<ConfigValidationResult> {
-    const response = await apiClient.post('/api/v1/config/validate', { configs })
+    const response = await apiClient.post('/config/validate', { configs })
     return response.data
   }
 
@@ -143,7 +143,7 @@ export class ConfigService {
    * 🔄 重置配置为默认值
    */
   static async resetConfigs(keys: string[]): Promise<ConfigUpdateResult> {
-    const response = await apiClient.post('/api/v1/config/reset', { keys })
+    const response = await apiClient.post('/config/reset', { keys })
     return response.data
   }
 
@@ -151,7 +151,7 @@ export class ConfigService {
    * 📊 获取系统状态
    */
   static async getSystemStatus(): Promise<SystemStatus> {
-    const response = await apiClient.get('/api/v1/config/system/status')
+    const response = await apiClient.get('/config/system/status')
     return response.data
   }
 
@@ -159,7 +159,7 @@ export class ConfigService {
    * 🎯 初始化默认配置
    */
   static async initializeDefaultConfigs(): Promise<void> {
-    await apiClient.post('/api/v1/config/initialize')
+    await apiClient.post('/config/initialize')
   }
 }
 
@@ -180,7 +180,7 @@ export class UserManagementService {
     page: number
     page_size: number
   }> {
-    const response = await apiClient.get('/api/v1/users', { params })
+    const response = await apiClient.get('/users', { params })
     return response.data
   }
 
@@ -188,7 +188,7 @@ export class UserManagementService {
    * 📊 获取用户统计
    */
   static async getUserStats(): Promise<UserStats> {
-    const response = await apiClient.get('/api/v1/users/stats')
+    const response = await apiClient.get('/users/stats')
     return response.data
   }
 
@@ -211,7 +211,7 @@ export class UserManagementService {
     role?: string
     is_active?: boolean
   }): Promise<UserInfo> {
-    const response = await apiClient.post('/api/v1/users', userData)
+    const response = await apiClient.post('/users', userData)
     return response.data
   }
 
@@ -278,7 +278,7 @@ export class ConfigBackupService {
    * 📋 获取备份列表
    */
   static async getBackups(): Promise<ConfigBackup[]> {
-    const response = await apiClient.get('/api/v1/config/backups')
+    const response = await apiClient.get('/config/backups')
     return response.data.backups
   }
 
@@ -290,7 +290,7 @@ export class ConfigBackupService {
     description?: string
     include_categories?: string[]
   }): Promise<void> {
-    await apiClient.post('/api/v1/config/backup', data)
+    await apiClient.post('/config/backup', data)
   }
 
   /**
@@ -301,7 +301,7 @@ export class ConfigBackupService {
     overwrite?: boolean
     restore_categories?: string[]
   }): Promise<ConfigUpdateResult> {
-    const response = await apiClient.post('/api/v1/config/restore', data)
+    const response = await apiClient.post('/config/restore', data)
     return response.data
   }
 
@@ -343,7 +343,7 @@ export class AnsibleConfigService {
     last_modified?: string
     backup_available: boolean
   }> {
-    const response = await apiClient.get('/api/v1/config/ansible/file')
+    const response = await apiClient.get('/config/ansible/file')
     return response.data
   }
 
@@ -351,7 +351,7 @@ export class AnsibleConfigService {
    * ✏️ 更新Ansible配置文件
    */
   static async updateConfigFile(content: string): Promise<ConfigUpdateResult> {
-    const response = await apiClient.put('/api/v1/config/ansible/file', { content })
+    const response = await apiClient.put('/config/ansible/file', { content })
     return response.data
   }
 
@@ -359,7 +359,7 @@ export class AnsibleConfigService {
    * 🔄 恢复Ansible配置备份
    */
   static async restoreBackup(): Promise<ConfigUpdateResult> {
-    const response = await apiClient.post('/api/v1/config/ansible/restore-backup')
+    const response = await apiClient.post('/config/ansible/restore-backup')
     return response.data
   }
 }
@@ -390,7 +390,7 @@ export class ConfigImportExportService {
     formData.append('file', file)
     formData.append('overwrite', overwrite.toString())
 
-    const response = await apiClient.post('/api/v1/config/import', formData, {
+    const response = await apiClient.post('/config/import', formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
       }

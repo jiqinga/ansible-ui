@@ -203,7 +203,7 @@ class MonitoringService {
    * 📊 获取系统资源信息
    */
   async getSystemResources(): Promise<SystemResources> {
-    const response = await apiClient.get('/api/v1/monitoring/system/resources')
+    const response = await apiClient.get('/monitoring/system/resources')
     return response.data
   }
 
@@ -211,7 +211,7 @@ class MonitoringService {
    * 📱 获取应用程序指标
    */
   async getApplicationMetrics(): Promise<ApplicationMetrics> {
-    const response = await apiClient.get('/api/v1/monitoring/application/metrics')
+    const response = await apiClient.get('/monitoring/application/metrics')
     return response.data
   }
 
@@ -219,7 +219,7 @@ class MonitoringService {
    * 🏥 获取系统健康状态
    */
   async getHealthStatus(): Promise<HealthStatus> {
-    const response = await apiClient.get('/api/v1/monitoring/health')
+    const response = await apiClient.get('/monitoring/health')
     return response.data
   }
 
@@ -227,7 +227,7 @@ class MonitoringService {
    * 📈 获取性能报告
    */
   async getPerformanceReport(days: number = 7): Promise<PerformanceReport> {
-    const response = await apiClient.get('/api/v1/monitoring/performance/report', {
+    const response = await apiClient.get('/monitoring/performance/report', {
       params: { days }
     })
     return response.data
@@ -237,7 +237,7 @@ class MonitoringService {
    * 🚨 获取警告阈值
    */
   async getAlertThresholds(): Promise<AlertThresholds> {
-    const response = await apiClient.get('/api/v1/monitoring/alerts/thresholds')
+    const response = await apiClient.get('/monitoring/alerts/thresholds')
     return response.data
   }
 
@@ -245,14 +245,14 @@ class MonitoringService {
    * 🔧 更新警告阈值
    */
   async updateAlertThresholds(thresholds: Partial<AlertThresholds>): Promise<void> {
-    await apiClient.put('/api/v1/monitoring/alerts/thresholds', thresholds)
+    await apiClient.put('/monitoring/alerts/thresholds', thresholds)
   }
 
   /**
    * 📊 获取监控仪表板数据
    */
   async getMonitoringDashboard(): Promise<MonitoringDashboard> {
-    const response = await apiClient.get('/api/v1/monitoring/dashboard')
+    const response = await apiClient.get('/monitoring/dashboard')
     return response.data
   }
 
@@ -264,7 +264,7 @@ class MonitoringService {
     hours: number = 24,
     intervalMinutes: number = 60
   ): Promise<MetricsHistory> {
-    const response = await apiClient.get('/api/v1/monitoring/metrics/history', {
+    const response = await apiClient.get('/monitoring/metrics/history', {
       params: {
         metric_type: metricType,
         hours,

@@ -168,7 +168,7 @@ export class PlaybookService {
    */
   static async createPlaybook(request: CreatePlaybookRequest): Promise<PlaybookFile> {
     try {
-      const response = await apiClient.post('/api/v1/playbooks/', request)
+      const response = await apiClient.post('/playbooks/', request)
       return response.data
     } catch (error: any) {
       console.error('❌ 创建Playbook失败:', error)
@@ -196,7 +196,7 @@ export class PlaybookService {
    */
   static async validatePlaybook(content: string): Promise<ValidationResult> {
     try {
-      const response = await apiClient.post('/api/v1/playbooks/validate-content', {
+      const response = await apiClient.post('/playbooks/validate-content', {
         content
       })
       return response.data
@@ -253,7 +253,7 @@ export class PlaybookService {
    */
   static async getPlaybookStats(): Promise<{ total: number; recent: number }> {
     try {
-      const response = await apiClient.get('/api/v1/playbooks/stats')
+      const response = await apiClient.get('/playbooks/stats')
       return response.data
     } catch (error) {
       console.error('❌ 获取Playbook统计失败:', error)

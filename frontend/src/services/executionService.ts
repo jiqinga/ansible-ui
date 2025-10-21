@@ -107,7 +107,7 @@ export interface WebSocketMessage {
  * 🚀 任务执行服务类
  */
 export class ExecutionService {
-  private baseUrl = '/api/v1/execution'
+  private baseUrl = '/execution'
 
   /**
    * 📋 获取任务列表
