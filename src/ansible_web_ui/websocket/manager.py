@@ -105,7 +105,8 @@ class WebSocketConnectionManager:
             websocket: 特定的WebSocket连接（可选，如果不指定则广播给所有连接）
         """
         if task_id not in self._connections:
-            logger.warning(f"任务 {task_id} 没有活跃的WebSocket连接")
+            # 降级为调试日志，因为任务可能在WebSocket连接建立前就开始执行
+            logger.debug(f"📭 任务 {task_id} 暂无活跃的WebSocket连接")
             return
 
         payload = WebSocketMessage(
@@ -240,25 +241,34 @@ class WebSocketConnectionManager:
         """
         task_id = payload.get("task_id")
         if not task_id:
-            logger.warning("收到没有 task_id 的事件: %s", payload)
+            logger.warning("⚠️ 收到没有 task_id 的事件")
+            return
+
+        # 检查是否有活跃连接
+        if task_id not in self._connections:
+            logger.debug(f"📭 任务 {task_id} 暂无WebSocket连接，跳过消息分发")
             return
 
         event_type = payload.get("type", "message")
+        data = payload.get("data", {})
         
         # 根据事件类型分发
         if event_type == "log":
-            message = payload.get("message", "")
-            await self.send_message(task_id, message)
+            # 日志事件：data 包含 message
+            message = data.get("message", "")
+            if message:
+                await self.send_message(task_id, message)
         elif event_type == "status":
-            status = payload.get("status", "")
-            data = payload.get("data", {})
+            # 状态事件：data 包含 status, progress, current_step 等
+            status = data.get("status", "")
             await self.send_status(task_id, status, data)
         elif event_type == "error":
-            error_message = payload.get("error_message", "")
-            error_code = payload.get("error_code")
+            # 错误事件
+            error_message = data.get("error_message", "")
+            error_code = data.get("error_code")
             await self.send_error(task_id, error_message, error_code)
         else:
-            # 通用消息广播
+            # 通用消息广播（直接发送整个 payload）
             await self.broadcast(task_id, payload)
 
 

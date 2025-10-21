@@ -77,6 +77,8 @@ class WebSocketEventListener:
         manager = get_websocket_manager()
         self._pubsub = self._redis.pubsub()
         await self._pubsub.psubscribe(self.CHANNEL_PATTERN)
+        
+        logger.info(f"📡 WebSocket事件监听器已订阅: {self.CHANNEL_PATTERN}")
 
         try:
             while self._stop_event and not self._stop_event.is_set():
@@ -93,11 +95,18 @@ class WebSocketEventListener:
 
                 try:
                     payload = json.loads(data)
+                    # 记录接收到的事件（调试用）
+                    task_id = payload.get("task_id", "unknown")
+                    event_type = payload.get("type", "unknown")
+                    logger.debug(f"📨 收到WebSocket事件: task_id={task_id}, type={event_type}")
+                    
+                    # 分发事件到WebSocket连接
+                    await manager.dispatch_event(payload)
                 except json.JSONDecodeError:
-                    logger.warning("Invalid WebSocket event payload: %s", data)
+                    logger.warning(f"⚠️ 无效的WebSocket事件数据: {data}")
                     continue
-
-                await manager.dispatch_event(payload)
+                except Exception as e:
+                    logger.error(f"❌ 处理WebSocket事件失败: {e}", exc_info=True)
         finally:
             await self._cleanup_pubsub()
 

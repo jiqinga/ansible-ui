@@ -46,126 +46,11 @@ security = HTTPBearer()
 # 创建路由器
 router = APIRouter(prefix="/execution", tags=["任务执行"])
 
-# WebSocket连接管理器
-class ConnectionManager:
-    """WebSocket连接管理器"""
-    
-    def __init__(self):
-        self.active_connections: List[WebSocket] = []
-        self.task_connections: dict = {}  # task_id -> [websockets]
-        self.redis_listeners: dict = {}  # task_id -> asyncio.Task
-        self._redis_client = None
-    
-    def _get_redis_client(self):
-        """获取Redis客户端"""
-        if self._redis_client is None:
-            import redis.asyncio as aioredis
-            from ansible_web_ui.core.config import get_settings
-            settings = get_settings()
-            self._redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
-        return self._redis_client
-    
-    async def connect(self, websocket: WebSocket, task_id: str, user_id: Optional[int] = None):
-        """建立WebSocket连接"""
-        await websocket.accept()
-        self.active_connections.append(websocket)
-        
-        if task_id not in self.task_connections:
-            self.task_connections[task_id] = []
-            # 启动Redis订阅监听器
-            await self._start_redis_listener(task_id)
-        
-        self.task_connections[task_id].append(websocket)
-        
-        logger.info(f"WebSocket连接建立: 任务ID={task_id}, 用户ID={user_id}, 当前连接数={len(self.task_connections[task_id])}")
-    
-    async def disconnect(self, websocket: WebSocket, task_id: str):
-        """断开WebSocket连接"""
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-        
-        if task_id in self.task_connections:
-            if websocket in self.task_connections[task_id]:
-                self.task_connections[task_id].remove(websocket)
-            
-            # 如果该任务没有连接了，清理记录并停止监听器
-            if not self.task_connections[task_id]:
-                del self.task_connections[task_id]
-                await self._stop_redis_listener(task_id)
-        
-        logger.info(f"WebSocket连接断开: 任务ID={task_id}")
-    
-    async def send_message_to_task(self, task_id: str, message: dict):
-        """向特定任务的所有连接发送消息"""
-        if task_id not in self.task_connections:
-            return
-        
-        disconnected = []
-        for websocket in self.task_connections[task_id]:
-            try:
-                await websocket.send_json(message)
-            except Exception as e:
-                logger.error(f"发送WebSocket消息失败: {e}")
-                disconnected.append(websocket)
-        
-        # 清理断开的连接
-        for websocket in disconnected:
-            await self.disconnect(websocket, task_id)
-    
-    async def _start_redis_listener(self, task_id: str):
-        """启动Redis订阅监听器"""
-        if task_id in self.redis_listeners:
-            return
-        
-        async def listen_redis_channel():
-            """监听Redis频道"""
-            try:
-                redis_client = self._get_redis_client()
-                pubsub = redis_client.pubsub()
-                channel = f"ws:tasks:{task_id}"
-                await pubsub.subscribe(channel)
-                
-                logger.info(f"📡 开始监听Redis频道: {channel}")
-                
-                async for message in pubsub.listen():
-                    if message['type'] == 'message':
-                        try:
-                            import json
-                            event_data = json.loads(message['data'])
-                            await self.send_message_to_task(task_id, event_data)
-                        except Exception as e:
-                            logger.error(f"处理Redis消息失败: {e}")
-                    
-                    # 如果任务已经没有连接了，退出监听
-                    if task_id not in self.task_connections:
-                        break
-                
-                await pubsub.unsubscribe(channel)
-                await pubsub.close()
-                logger.info(f"📡 停止监听Redis频道: {channel}")
-                
-            except Exception as e:
-                logger.error(f"Redis监听器异常: {e}")
-        
-        # 创建监听任务
-        import asyncio
-        task = asyncio.create_task(listen_redis_channel())
-        self.redis_listeners[task_id] = task
-    
-    async def _stop_redis_listener(self, task_id: str):
-        """停止Redis订阅监听器"""
-        if task_id in self.redis_listeners:
-            task = self.redis_listeners[task_id]
-            task.cancel()
-            try:
-                await task
-            except:
-                pass
-            del self.redis_listeners[task_id]
-            logger.info(f"📡 Redis监听器已停止: {task_id}")
+# 使用统一的WebSocket管理器
+from ansible_web_ui.websocket.manager import get_websocket_manager
 
-# 全局连接管理器
-manager = ConnectionManager()
+# 获取全局管理器实例
+manager = get_websocket_manager()
 
 
 @router.post("/playbook", response_model=TaskStatusResponse, summary="🚀 执行Playbook")
@@ -592,33 +477,37 @@ async def websocket_task_logs(
         try:
             from ansible_web_ui.auth.security import verify_token
             payload = verify_token(token)
-            user_id = payload.get("sub")
+            user_id = int(payload.get("sub"))
         except Exception as e:
             logger.warning(f"WebSocket认证失败: {e}")
             # 继续连接，但不设置user_id
     
+    # 建立连接
     await manager.connect(websocket, task_id, user_id=user_id)
     
     try:
         # 发送连接成功消息
-        await websocket.send_json({
-            "type": "connected",
-            "task_id": task_id,
-            "data": {"message": "WebSocket连接已建立"},
-            "timestamp": now().isoformat()
-        })
+        from ansible_web_ui.schemas.execution_schemas import WebSocketMessage
+        connected_msg = WebSocketMessage(
+            type="connected",
+            task_id=task_id,
+            data={"message": "WebSocket连接已建立"},
+            timestamp=now()
+        )
+        await websocket.send_json(connected_msg.model_dump(mode='json'))
         
         # 发送历史日志
         task_tracker = get_task_tracker()
         existing_logs = task_tracker.get_task_logs(task_id, limit=50)
         
         for log_entry in existing_logs:
-            await websocket.send_json({
-                "type": "log",
-                "task_id": task_id,
-                "data": {"message": log_entry},
-                "timestamp": now().isoformat()
-            })
+            log_msg = WebSocketMessage(
+                type="log",
+                task_id=task_id,
+                data={"message": log_entry},
+                timestamp=now()
+            )
+            await websocket.send_json(log_msg.model_dump(mode='json'))
         
         # 保持连接活跃
         while True:
@@ -628,12 +517,13 @@ async def websocket_task_logs(
                 
                 # 响应心跳包
                 if data == "ping":
-                    await websocket.send_json({
-                        "type": "pong",
-                        "task_id": task_id,
-                        "data": {"message": "连接正常"},
-                        "timestamp": now().isoformat()
-                    })
+                    pong_msg = WebSocketMessage(
+                        type="pong",
+                        task_id=task_id,
+                        data={"message": "连接正常"},
+                        timestamp=now()
+                    )
+                    await websocket.send_json(pong_msg.model_dump(mode='json'))
                     
             except WebSocketDisconnect:
                 break
@@ -648,49 +538,6 @@ async def websocket_task_logs(
     finally:
         await manager.disconnect(websocket, task_id)
 
-
-# 实时日志推送函数（供任务使用）
-async def push_log_to_websocket(task_id: str, log_message: str):
-    """
-    向WebSocket客户端推送日志消息
-    
-    Args:
-        task_id: 任务ID
-        log_message: 日志消息
-    """
-    message = {
-        "type": "log",
-        "task_id": task_id,
-        "data": {"message": log_message},
-        "timestamp": now().isoformat()
-    }
-    
-    await manager.send_message_to_task(task_id, message)
-
-
-# 任务状态变更推送函数
-async def push_status_to_websocket(task_id: str, status: str, progress: int, current_step: str = None):
-    """
-    向WebSocket客户端推送状态更新
-    
-    Args:
-        task_id: 任务ID
-        status: 任务状态
-        progress: 执行进度
-        current_step: 当前步骤
-    """
-    message = {
-        "type": "status",
-        "task_id": task_id,
-        "data": {
-            "status": status,
-            "progress": progress,
-            "current_step": current_step
-        },
-        "timestamp": now().isoformat()
-    }
-    
-    await manager.send_message_to_task(task_id, message)
 
 
 @router.get("/host/{hostname}/history", summary="📜 获取主机执行历史")

@@ -67,28 +67,15 @@ def run_playbook_task(
         Dict[str, Any]: 执行结果
     """
     import time
-    from ansible_web_ui.websocket.manager import get_websocket_manager
     
     task_id = self.request.id
     task_tracker = get_task_tracker()
     ansible_service = get_ansible_execution_service()
-    ws_manager = get_websocket_manager()
     
-    # 等待WebSocket连接建立（最多等待5秒）
-    max_wait_time = 5
-    wait_interval = 0.1
-    elapsed_time = 0
-    
-    logger.info(f"⏳ 等待WebSocket连接建立: task_id={task_id}")
-    while elapsed_time < max_wait_time:
-        if ws_manager.get_active_connections(task_id) > 0:
-            logger.info(f"✅ WebSocket连接已建立: task_id={task_id}")
-            break
-        time.sleep(wait_interval)
-        elapsed_time += wait_interval
-    
-    if ws_manager.get_active_connections(task_id) == 0:
-        logger.warning(f"⚠️ WebSocket连接未建立，继续执行任务: task_id={task_id}")
+    # 注意：WebSocket连接通过Redis Pub/Sub机制处理
+    # 不需要等待连接建立，任务执行器通过Redis发布消息
+    # ConnectionManager会自动接收并转发给WebSocket客户端
+    logger.info(f"🚀 开始执行任务: task_id={task_id}")
     
     # 更新任务状态为开始执行
     task_tracker.update_task_status(
