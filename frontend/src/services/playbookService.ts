@@ -92,7 +92,7 @@ export class PlaybookService {
    */
   static async getPlaybooks(page: number = 1, size: number = 100, search?: string): Promise<{ items: PlaybookFile[]; total: number }> {
     try {
-      const response = await apiClient.get(`/api/v1/playbooks/`, {
+      const response = await apiClient.get(`/playbooks/`, {
         params: { page, size, search }
       })
       return {
@@ -110,7 +110,7 @@ export class PlaybookService {
    */
   static async browsePlaybookFiles(path: string = ''): Promise<FileItem[]> {
     try {
-      const response = await apiClient.get(`/api/v1/playbooks/files`, {
+      const response = await apiClient.get(`/playbooks/files`, {
         params: { path }
       })
       return response.data.files || []
@@ -125,7 +125,7 @@ export class PlaybookService {
    */
   static async getPlaybookContent(playbookId: number): Promise<{ content: string; filename: string; file_size: number }> {
     try {
-      const response = await apiClient.get(`/api/v1/playbooks/${playbookId}/content`)
+      const response = await apiClient.get(`/playbooks/${playbookId}/content`)
       return response.data
     } catch (error) {
       console.error('❌ 获取Playbook内容失败:', error)
@@ -138,7 +138,7 @@ export class PlaybookService {
    */
   static async getFileContent(path: string): Promise<string> {
     try {
-      const response = await apiClient.get(`/api/v1/playbooks/content`, {
+      const response = await apiClient.get(`/playbooks/content`, {
         params: { path }
       })
       return response.data.content || ''
@@ -153,7 +153,7 @@ export class PlaybookService {
    */
   static async savePlaybookContent(path: string, content: string): Promise<void> {
     try {
-      await apiClient.put(`/api/v1/playbooks/content`, {
+      await apiClient.put(`/playbooks/content`, {
         path,
         content
       })
@@ -182,7 +182,7 @@ export class PlaybookService {
    */
   static async deletePlaybook(path: string): Promise<void> {
     try {
-      await apiClient.delete(`/api/v1/playbooks`, {
+      await apiClient.delete(`/playbooks`, {
         params: { path }
       })
     } catch (error) {
