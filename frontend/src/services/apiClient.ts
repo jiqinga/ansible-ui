@@ -21,7 +21,9 @@ declare module 'axios' {
 }
 
 // 🔧 API配置
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+// 开发环境使用空字符串，让请求通过Vite代理
+// 生产环境需要设置完整的API地址
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 const REQUEST_TIMEOUT = 30000 // 30秒超时
 
 /**
