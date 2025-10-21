@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 
 import Editor from '@monaco-editor/react'
 import {
-  FolderIcon,
   DocumentTextIcon,
   PlayIcon,
   CheckCircleIcon,
@@ -11,19 +10,15 @@ import {
   PlusIcon,
   TrashIcon,
   ArrowPathIcon,
-  DocumentArrowDownIcon,
-
-  ChevronRightIcon,
-  ChevronDownIcon
+  DocumentArrowDownIcon
 } from '@heroicons/react/24/outline'
-import { FolderOpenIcon } from '@heroicons/react/24/solid'
 
 import GlassCard from '../components/UI/GlassCard'
 import GlassButton from '../components/UI/GlassButton'
 import GlassInput from '../components/UI/GlassInput'
 import GlassModal from '../components/UI/GlassModal'
 import { useNotification } from '../contexts/NotificationContext'
-import PlaybookService, { FileItem, ValidationResult } from '../services/playbookService'
+import PlaybookService, { ValidationResult } from '../services/playbookService'
 
 /**
  * 🎨 Playbook编辑器页面
@@ -39,11 +34,10 @@ const Playbooks: React.FC = () => {
 
   const { success, error } = useNotification()
 
-  // 📁 文件浏览器状态
-  const [files, setFiles] = useState<FileItem[]>([])
-  const [currentPath, setCurrentPath] = useState('')
-  const [selectedFile, setSelectedFile] = useState<FileItem | null>(null)
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
+  // 📁 Playbook列表状态
+  const [playbooks, setPlaybooks] = useState<any[]>([])
+  const [totalPlaybooks, setTotalPlaybooks] = useState(0)
+  const [selectedPlaybook, setSelectedPlaybook] = useState<any | null>(null)
 
   // 📝 编辑器状态
   const [editorContent, setEditorContent] = useState('')
@@ -58,47 +52,45 @@ const Playbooks: React.FC = () => {
 
   // 🔍 搜索状态
   const [searchTerm, setSearchTerm] = useState('')
-  const [filteredFiles, setFilteredFiles] = useState<FileItem[]>([])
+  const [filteredPlaybooks, setFilteredPlaybooks] = useState<any[]>([])
 
   // 📝 新建文件模态框
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newFileName, setNewFileName] = useState('')
 
   /**
-   * 📂 加载文件列表
+   * 📂 加载Playbook列表
    */
-  const loadFiles = useCallback(async (path: string = '') => {
+  const loadPlaybooks = useCallback(async (search?: string) => {
     setIsLoading(true)
     try {
-      const fileList = await PlaybookService.getPlaybooks(path)
-      setFiles(fileList)
-      setFilteredFiles(fileList)
-      setCurrentPath(path)
+      const result = await PlaybookService.getPlaybooks(1, 100, search)
+      setPlaybooks(result.items)
+      setFilteredPlaybooks(result.items)
+      setTotalPlaybooks(result.total)
     } catch (err) {
-      error('❌ 加载文件列表失败')
+      error('❌ 加载Playbook列表失败')
     } finally {
       setIsLoading(false)
     }
   }, [error])
 
   /**
-   * 📄 加载文件内容
+   * 📄 加载Playbook内容
    */
-  const loadFileContent = useCallback(async (file: FileItem) => {
-    if (file.is_directory) return
-
+  const loadPlaybookContent = useCallback(async (playbook: any) => {
     setIsLoading(true)
     try {
-      const content = await PlaybookService.getPlaybookContent(file.path)
-      setEditorContent(content)
-      setOriginalContent(content)
-      setSelectedFile(file)
+      const response = await PlaybookService.getPlaybookContent(playbook.id)
+      setEditorContent(response.content)
+      setOriginalContent(response.content)
+      setSelectedPlaybook(playbook)
       setIsModified(false)
-      
+
       // 🔄 自动验证
-      validateContent(content)
+      validateContent(response.content)
     } catch (err) {
-      error('❌ 加载文件内容失败')
+      error('❌ 加载Playbook内容失败')
     } finally {
       setIsLoading(false)
     }
@@ -125,23 +117,26 @@ const Playbooks: React.FC = () => {
   }, [])
 
   /**
-   * 💾 保存文件内容
+   * 💾 保存Playbook内容
    */
-  const saveFile = useCallback(async () => {
-    if (!selectedFile || !isModified) return
+  const savePlaybook = useCallback(async () => {
+    if (!selectedPlaybook || !isModified) return
 
     setIsSaving(true)
     try {
-      await PlaybookService.savePlaybookContent(selectedFile.path, editorContent)
+      await PlaybookService.savePlaybookContent(selectedPlaybook.file_path || `playbooks/${selectedPlaybook.filename}`, editorContent)
       setOriginalContent(editorContent)
       setIsModified(false)
-      success('✅ 文件保存成功')
-    } catch (error) {
-      console.error('❌ 保存文件失败', error)
+      success('✅ Playbook保存成功')
+
+      // 重新加载列表
+      loadPlaybooks(searchTerm)
+    } catch (err) {
+      error('❌ 保存Playbook失败')
     } finally {
       setIsSaving(false)
     }
-  }, [selectedFile, isModified, editorContent, success, error])
+  }, [selectedPlaybook, isModified, editorContent, searchTerm, success, error, loadPlaybooks])
 
   /**
    * 📝 创建新文件
@@ -150,12 +145,12 @@ const Playbooks: React.FC = () => {
     if (!newFileName.trim()) return
 
     try {
-      const fileName = newFileName.endsWith('.yml') || newFileName.endsWith('.yaml') 
-        ? newFileName 
+      const fileName = newFileName.endsWith('.yml') || newFileName.endsWith('.yaml')
+        ? newFileName
         : `${newFileName}.yml`
 
       await PlaybookService.createPlaybook({
-        filename: fileName,  // 修改为 filename 以匹配后端 API
+        filename: fileName,
         content: `---
 - name: ${fileName.replace(/\.(yml|yaml)$/, '')}
   hosts: all
@@ -165,77 +160,55 @@ const Playbooks: React.FC = () => {
     - name: 示例任务
       debug:
         msg: "Hello from ${fileName}"
-`,
-        path: currentPath
+`
       })
 
       setNewFileName('')
       setShowCreateModal(false)
-      success('✅ 文件创建成功')
-      
-      // 🔄 重新加载文件列表
-      loadFiles(currentPath)
+      success('✅ Playbook创建成功')
+
+      // 🔄 重新加载列表
+      loadPlaybooks(searchTerm)
     } catch (error) {
       console.error('❌ 创建文件失败', error)
     }
-  }, [newFileName, currentPath, loadFiles, success, error])
+  }, [newFileName, searchTerm, loadPlaybooks, success, error])
 
   /**
-   * 🗑️ 删除文件
+   * 🗑️ 删除Playbook
    */
-  const deleteFile = useCallback(async (file: FileItem) => {
-    if (!confirm(`确定要删除 ${file.name} 吗？`)) return
+  const deletePlaybook = useCallback(async (playbook: any) => {
+    if (!confirm(`确定要删除 ${playbook.filename} 吗？`)) return
 
     try {
-      await PlaybookService.deletePlaybook(file.path)
-      success('✅ 文件删除成功')
-      
-      // 🔄 重新加载文件列表
-      loadFiles(currentPath)
-      
-      // 如果删除的是当前打开的文件，清空编辑器
-      if (selectedFile?.path === file.path) {
-        setSelectedFile(null)
+      await PlaybookService.deletePlaybook(playbook.file_path || `playbooks/${playbook.filename}`)
+      success('✅ Playbook删除成功')
+
+      // 🔄 重新加载列表
+      loadPlaybooks(searchTerm)
+
+      // 如果删除的是当前打开的Playbook，清空编辑器
+      if (selectedPlaybook?.id === playbook.id) {
+        setSelectedPlaybook(null)
         setEditorContent('')
         setOriginalContent('')
         setIsModified(false)
         setValidationResult(null)
       }
-    } catch (error) {
-      console.error('❌ 删除文件失败', error)
+    } catch (err) {
+      error('❌ 删除Playbook失败')
     }
-  }, [currentPath, loadFiles, selectedFile, success, error])
+  }, [searchTerm, loadPlaybooks, selectedPlaybook, success, error])
+
+
 
   /**
-   * 📁 切换文件夹展开状态
-   */
-  const toggleFolder = useCallback((folderPath: string) => {
-    setExpandedFolders(prev => {
-      const newSet = new Set(prev)
-      if (newSet.has(folderPath)) {
-        newSet.delete(folderPath)
-      } else {
-        newSet.add(folderPath)
-      }
-      return newSet
-    })
-  }, [])
-
-  /**
-   * 🔍 搜索文件
+   * 🔍 搜索Playbook
    */
   const handleSearch = useCallback((term: string) => {
     setSearchTerm(term)
-    if (!term.trim()) {
-      setFilteredFiles(files)
-      return
-    }
-
-    const filtered = files.filter(file => 
-      file.name.toLowerCase().includes(term.toLowerCase())
-    )
-    setFilteredFiles(filtered)
-  }, [files])
+    loadPlaybooks(term)
+  }, [loadPlaybooks])
 
   /**
    * 📝 编辑器内容变化处理
@@ -244,19 +217,19 @@ const Playbooks: React.FC = () => {
     const content = value || ''
     setEditorContent(content)
     setIsModified(content !== originalContent)
-    
+
     // 🔄 延迟验证以避免频繁调用
     const timeoutId = setTimeout(() => {
       validateContent(content)
     }, 1000)
-    
+
     return () => clearTimeout(timeoutId)
   }, [originalContent, validateContent])
 
   // 🔄 初始化加载
   useEffect(() => {
-    loadFiles()
-  }, [loadFiles])
+    loadPlaybooks()
+  }, [loadPlaybooks])
 
   // ⌨️ 键盘快捷键
   useEffect(() => {
@@ -265,7 +238,7 @@ const Playbooks: React.FC = () => {
         switch (e.key) {
           case 's':
             e.preventDefault()
-            if (isModified) saveFile()
+            if (isModified) savePlaybook()
             break
           case 'n':
             e.preventDefault()
@@ -277,91 +250,59 @@ const Playbooks: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isModified, saveFile])
-  /**
+  }, [isModified, savePlaybook])
 
-   * 🎨 渲染文件树项目
+  /**
+   * 🎨 渲染Playbook列表项
    */
-  const renderFileItem = (file: FileItem, level: number = 0) => {
-    const isExpanded = expandedFolders.has(file.path)
-    const isSelected = selectedFile?.path === file.path
+  const renderPlaybookItem = (playbook: any) => {
+    const isSelected = selectedPlaybook?.id === playbook.id
 
     return (
-      <div key={file.path} className="select-none">
-        <motion.div
-          className={`
-            flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer
-            transition-all duration-200 hover:bg-white/10
-            ${isSelected ? 'bg-white/20 border border-white/30' : ''}
-          `}
-          style={{ paddingLeft: `${12 + level * 16}px` }}
-          onClick={() => {
-            if (file.is_directory) {
-              toggleFolder(file.path)
-            } else {
-              loadFileContent(file)
-            }
-          }}
-          whileHover={{ y: -2 }}
-          whileTap={{ y: 0 }}
-        >
-          {file.is_directory ? (
-            <>
-              {isExpanded ? (
-                <ChevronDownIcon className="w-4 h-4 text-white/70" />
-              ) : (
-                <ChevronRightIcon className="w-4 h-4 text-white/70" />
-              )}
-              {isExpanded ? (
-                <FolderOpenIcon className="w-5 h-5 text-blue-300" />
-              ) : (
-                <FolderIcon className="w-5 h-5 text-blue-300" />
-              )}
-            </>
-          ) : (
-            <>
-              <div className="w-4 h-4" />
-              <DocumentTextIcon className="w-5 h-5 text-green-300" />
-            </>
-          )}
-          
-          <span className="flex-1 text-white/90 text-sm font-medium">
-            {file.name}
-          </span>
-          
-          {!file.is_directory && (
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-white/50">
-                {file.size ? `${Math.round(file.size / 1024)}KB` : ''}
-              </span>
-              <GlassButton
-                size="sm"
-                variant="ghost"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  deleteFile(file)
-                }}
-                className="opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <TrashIcon className="w-4 h-4" />
-              </GlassButton>
+      <motion.div
+        key={playbook.id}
+        className={`
+          flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer
+          transition-all duration-200 hover:bg-white/10
+          ${isSelected ? 'bg-white/20 border border-white/30' : ''}
+        `}
+        onClick={() => loadPlaybookContent(playbook)}
+        whileHover={{ y: -2 }}
+        whileTap={{ y: 0 }}
+      >
+        <DocumentTextIcon className="w-5 h-5 text-green-300" />
+
+        <div className="flex-1 min-w-0">
+          <div className="text-white/90 text-sm font-medium truncate">
+            {playbook.display_name || playbook.filename}
+          </div>
+          {playbook.description && (
+            <div className="text-white/50 text-xs truncate">
+              {playbook.description}
             </div>
           )}
-        </motion.div>
-        
-        {file.is_directory && isExpanded && file.children && (
-          <AnimatePresence>
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              {file.children.map(child => renderFileItem(child, level + 1))}
-            </motion.div>
-          </AnimatePresence>
-        )}
-      </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {!playbook.is_valid && (
+            <ExclamationTriangleIcon className="w-4 h-4 text-red-400" title="验证失败" />
+          )}
+          <span className="text-xs text-white/50">
+            {playbook.file_size ? `${Math.round(playbook.file_size / 1024)}KB` : ''}
+          </span>
+          <GlassButton
+            size="sm"
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation()
+              deletePlaybook(playbook)
+            }}
+            className="opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </GlassButton>
+        </div>
+      </motion.div>
     )
   }
 
@@ -411,7 +352,7 @@ const Playbooks: React.FC = () => {
             </div>
           </div>
         ))}
-        
+
         {warnings.map((warning, index) => (
           <div
             key={index}
@@ -476,39 +417,48 @@ const Playbooks: React.FC = () => {
                     <PlusIcon className="w-4 h-4" />
                   </GlassButton>
                 </div>
-                
+
                 <GlassInput
                   placeholder="🔍 搜索文件..."
                   value={searchTerm}
                   onChange={(e) => handleSearch(e.target.value)}
                   className="text-sm"
                 />
-                
+
                 <div className="flex gap-2">
                   <GlassButton
                     size="sm"
                     variant="ghost"
-                    onClick={() => loadFiles(currentPath)}
+                    onClick={() => loadPlaybooks(searchTerm)}
                     disabled={isLoading}
-                    title="刷新文件列表"
+                    title="刷新列表"
                   >
                     <ArrowPathIcon className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                   </GlassButton>
                 </div>
               </div>
 
-              {/* 📂 文件树 */}
+              {/* 📂 Playbook列表 */}
               <div className="flex-1 overflow-y-auto space-y-1 group">
                 {isLoading ? (
                   <div className="flex items-center justify-center py-8">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white/50"></div>
                   </div>
-                ) : filteredFiles.length === 0 ? (
+                ) : filteredPlaybooks.length === 0 ? (
                   <div className="text-center py-8 text-white/50">
-                    {searchTerm ? '🔍 未找到匹配的文件' : '📁 暂无文件'}
+                    {searchTerm ? '🔍 未找到匹配的Playbook' : '📁 暂无Playbook'}
+                    <div className="mt-4">
+                      <GlassButton
+                        size="sm"
+                        onClick={() => setShowCreateModal(true)}
+                      >
+                        <PlusIcon className="w-4 h-4 mr-2" />
+                        创建第一个Playbook
+                      </GlassButton>
+                    </div>
                   </div>
                 ) : (
-                  filteredFiles.map(file => renderFileItem(file))
+                  filteredPlaybooks.map(playbook => renderPlaybookItem(playbook))
                 )}
               </div>
             </GlassCard>
@@ -524,15 +474,15 @@ const Playbooks: React.FC = () => {
               {/* 📄 文件信息栏 */}
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  {selectedFile ? (
+                  {selectedPlaybook ? (
                     <>
                       <DocumentTextIcon className="w-6 h-6 text-green-300" />
                       <div>
                         <h3 className="text-lg font-semibold text-white">
-                          {selectedFile.name}
+                          {selectedPlaybook.display_name || selectedPlaybook.filename}
                         </h3>
                         <p className="text-sm text-white/60">
-                          {selectedFile.path}
+                          {selectedPlaybook.description || selectedPlaybook.filename}
                         </p>
                       </div>
                       {isModified && (
@@ -543,18 +493,18 @@ const Playbooks: React.FC = () => {
                     </>
                   ) : (
                     <div className="text-white/60">
-                      👈 请选择一个文件开始编辑
+                      👈 请选择一个Playbook开始编辑
                     </div>
                   )}
                 </div>
 
-                {selectedFile && (
+                {selectedPlaybook && (
                   <div className="flex gap-2">
                     <GlassButton
                       size="sm"
-                      onClick={saveFile}
+                      onClick={savePlaybook}
                       disabled={!isModified || isSaving}
-                      title="保存文件 (Ctrl+S)"
+                      title="保存Playbook (Ctrl+S)"
                     >
                       {isSaving ? (
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/50"></div>
@@ -569,7 +519,7 @@ const Playbooks: React.FC = () => {
 
               {/* 🎨 Monaco编辑器 */}
               <div className="flex-1 rounded-lg overflow-hidden border border-white/20">
-                {selectedFile ? (
+                {selectedPlaybook ? (
                   <Editor
                     height="100%"
                     defaultLanguage="yaml"
@@ -630,18 +580,18 @@ const Playbooks: React.FC = () => {
               </div>
 
               <div className="flex-1 overflow-y-auto">
-                {selectedFile ? (
+                {selectedPlaybook ? (
                   renderValidationResult()
                 ) : (
                   <div className="text-center py-8 text-white/50">
                     <CheckCircleIcon className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                    <p>选择文件后显示验证结果</p>
+                    <p>选择Playbook后显示验证结果</p>
                   </div>
                 )}
               </div>
 
               {/* 📊 快速操作 */}
-              {selectedFile && (
+              {selectedPlaybook && (
                 <div className="mt-4 pt-4 border-t border-white/20">
                   <div className="space-y-2">
                     <GlassButton
@@ -654,7 +604,7 @@ const Playbooks: React.FC = () => {
                       <ArrowPathIcon className="w-4 h-4 mr-2" />
                       重新验证
                     </GlassButton>
-                    
+
                     <GlassButton
                       size="sm"
                       variant="ghost"
@@ -687,11 +637,11 @@ const Playbooks: React.FC = () => {
               onChange={(e) => setNewFileName(e.target.value)}
               autoFocus
             />
-            
+
             <div className="text-sm text-white/60">
               💡 文件将自动添加 .yml 扩展名（如果未指定）
             </div>
-            
+
             <div className="flex gap-3 justify-end">
               <GlassButton
                 variant="ghost"

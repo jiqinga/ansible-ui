@@ -83,14 +83,17 @@ export interface UpdatePlaybookRequest {
  */
 export class PlaybookService {
   /**
-   * 📂 获取Playbook文件列表
+   * 📂 获取Playbook列表（从数据库）
    */
-  static async getPlaybooks(path: string = ''): Promise<FileItem[]> {
+  static async getPlaybooks(page: number = 1, size: number = 100, search?: string): Promise<{ items: PlaybookFile[]; total: number }> {
     try {
-      const response = await apiClient.get(`/api/v1/playbooks/files`, {
-        params: { path }
+      const response = await apiClient.get(`/api/v1/playbooks/`, {
+        params: { page, size, search }
       })
-      return response.data.files || []
+      return {
+        items: response.data.items || [],
+        total: response.data.total || 0
+      }
     } catch (error) {
       console.error('❌ 获取Playbook列表失败:', error)
       throw error
@@ -98,16 +101,44 @@ export class PlaybookService {
   }
 
   /**
-   * 📄 获取Playbook文件内容
+   * 📂 浏览文件系统中的Playbook文件
    */
-  static async getPlaybookContent(path: string): Promise<string> {
+  static async browsePlaybookFiles(path: string = ''): Promise<FileItem[]> {
+    try {
+      const response = await apiClient.get(`/api/v1/playbooks/files`, {
+        params: { path }
+      })
+      return response.data.files || []
+    } catch (error) {
+      console.error('❌ 浏览文件失败:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 📄 获取Playbook文件内容（通过ID）
+   */
+  static async getPlaybookContent(playbookId: number): Promise<{ content: string; filename: string; file_size: number }> {
+    try {
+      const response = await apiClient.get(`/api/v1/playbooks/${playbookId}/content`)
+      return response.data
+    } catch (error) {
+      console.error('❌ 获取Playbook内容失败:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 📄 获取文件内容（通过路径）
+   */
+  static async getFileContent(path: string): Promise<string> {
     try {
       const response = await apiClient.get(`/api/v1/playbooks/content`, {
         params: { path }
       })
       return response.data.content || ''
     } catch (error) {
-      console.error('❌ 获取Playbook内容失败:', error)
+      console.error('❌ 获取文件内容失败:', error)
       throw error
     }
   }
