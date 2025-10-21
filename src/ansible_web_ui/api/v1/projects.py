@@ -196,6 +196,10 @@ async def get_project_files(
                 detail=f"项目 {project_id} 不存在"
             )
         
+        # 确保 path 是字符串，处理 None 的情况
+        if path is None:
+            path = ""
+        
         # 获取文件树结构
         structure = await project_service.get_project_files(
             project_id=project_id,

@@ -53,6 +53,17 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
         self.task_connections: dict = {}  # task_id -> [websockets]
+        self.redis_listeners: dict = {}  # task_id -> asyncio.Task
+        self._redis_client = None
+    
+    def _get_redis_client(self):
+        """获取Redis客户端"""
+        if self._redis_client is None:
+            import redis.asyncio as aioredis
+            from ansible_web_ui.core.config import get_settings
+            settings = get_settings()
+            self._redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        return self._redis_client
     
     async def connect(self, websocket: WebSocket, task_id: str, user_id: Optional[int] = None):
         """建立WebSocket连接"""
@@ -61,9 +72,12 @@ class ConnectionManager:
         
         if task_id not in self.task_connections:
             self.task_connections[task_id] = []
+            # 启动Redis订阅监听器
+            await self._start_redis_listener(task_id)
+        
         self.task_connections[task_id].append(websocket)
         
-        logger.info(f"WebSocket连接建立: 任务ID={task_id}, 用户ID={user_id}")
+        logger.info(f"WebSocket连接建立: 任务ID={task_id}, 用户ID={user_id}, 当前连接数={len(self.task_connections[task_id])}")
     
     async def disconnect(self, websocket: WebSocket, task_id: str):
         """断开WebSocket连接"""
@@ -74,9 +88,10 @@ class ConnectionManager:
             if websocket in self.task_connections[task_id]:
                 self.task_connections[task_id].remove(websocket)
             
-            # 如果该任务没有连接了，清理记录
+            # 如果该任务没有连接了，清理记录并停止监听器
             if not self.task_connections[task_id]:
                 del self.task_connections[task_id]
+                await self._stop_redis_listener(task_id)
         
         logger.info(f"WebSocket连接断开: 任务ID={task_id}")
     
@@ -95,7 +110,59 @@ class ConnectionManager:
         
         # 清理断开的连接
         for websocket in disconnected:
-            self.disconnect(websocket, task_id)
+            await self.disconnect(websocket, task_id)
+    
+    async def _start_redis_listener(self, task_id: str):
+        """启动Redis订阅监听器"""
+        if task_id in self.redis_listeners:
+            return
+        
+        async def listen_redis_channel():
+            """监听Redis频道"""
+            try:
+                redis_client = self._get_redis_client()
+                pubsub = redis_client.pubsub()
+                channel = f"ws:tasks:{task_id}"
+                await pubsub.subscribe(channel)
+                
+                logger.info(f"📡 开始监听Redis频道: {channel}")
+                
+                async for message in pubsub.listen():
+                    if message['type'] == 'message':
+                        try:
+                            import json
+                            event_data = json.loads(message['data'])
+                            await self.send_message_to_task(task_id, event_data)
+                        except Exception as e:
+                            logger.error(f"处理Redis消息失败: {e}")
+                    
+                    # 如果任务已经没有连接了，退出监听
+                    if task_id not in self.task_connections:
+                        break
+                
+                await pubsub.unsubscribe(channel)
+                await pubsub.close()
+                logger.info(f"📡 停止监听Redis频道: {channel}")
+                
+            except Exception as e:
+                logger.error(f"Redis监听器异常: {e}")
+        
+        # 创建监听任务
+        import asyncio
+        task = asyncio.create_task(listen_redis_channel())
+        self.redis_listeners[task_id] = task
+    
+    async def _stop_redis_listener(self, task_id: str):
+        """停止Redis订阅监听器"""
+        if task_id in self.redis_listeners:
+            task = self.redis_listeners[task_id]
+            task.cancel()
+            try:
+                await task
+            except:
+                pass
+            del self.redis_listeners[task_id]
+            logger.info(f"📡 Redis监听器已停止: {task_id}")
 
 # 全局连接管理器
 manager = ConnectionManager()

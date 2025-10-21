@@ -73,6 +73,11 @@ class StorageService:
             ValueError: 路径不合法时抛出
         """
         project_path = self.get_project_path(project_name)
+        
+        # 处理空字符串或 None 的情况
+        if not relative_path:
+            return project_path
+        
         target_path = (project_path / relative_path).resolve()
         
         # 确保目标路径在项目目录内
@@ -100,10 +105,14 @@ class StorageService:
         Returns:
             目录树结构字典
         """
+        # 确保 relative_path 是字符串
+        if relative_path is None:
+            relative_path = ""
+        
         target_path = self.validate_path_within_project(project_name, relative_path)
         
         if not target_path.exists():
-            raise FileNotFoundError(f"路径不存在: {relative_path}")
+            raise FileNotFoundError(f"路径不存在: {target_path}")
         
         if target_path.is_file():
             return {
