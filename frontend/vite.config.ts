@@ -55,7 +55,7 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-  build: {
+    build: {
     outDir: 'dist',
     sourcemap: true,
     rollupOptions: {
@@ -68,10 +68,11 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-  },
-  test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: ['./src/test/setup.ts'],
-  },
+    },
+    test: {
+      globals: true,
+      environment: 'jsdom',
+      setupFiles: ['./src/test/setup.ts'],
+    },
+  }
 })
