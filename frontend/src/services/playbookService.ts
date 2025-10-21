@@ -4,14 +4,19 @@ import { apiClient } from './apiClient'
  * 📝 Playbook文件信息接口
  */
 export interface PlaybookFile {
-  id: string
-  name: string
-  path: string
-  content?: string
-  size: number
-  modified_time: string
-  is_directory: boolean
-  parent_path?: string
+  id: number
+  filename: string
+  display_name?: string
+  description?: string
+  project_id?: number
+  file_path?: string
+  file_size: number
+  file_hash?: string
+  is_valid: boolean
+  validation_error?: string
+  created_at: string
+  updated_at: string
+  created_by?: number
 }
 
 /**

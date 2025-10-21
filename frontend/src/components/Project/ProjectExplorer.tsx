@@ -34,9 +34,16 @@ export const ProjectExplorer: React.FC<ProjectExplorerProps> = ({
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
   const [newFileName, setNewFileName] = useState('');
 
+  // 使用 ref 跟踪是否已经加载过
+  const hasLoadedRef = React.useRef(false);
+
   // 加载项目列表
   useEffect(() => {
-    loadProjects();
+    // 防止重复加载
+    if (!hasLoadedRef.current) {
+      hasLoadedRef.current = true;
+      loadProjects();
+    }
   }, []);
 
   // 当projectId变化时，加载对应项目
@@ -49,14 +56,18 @@ export const ProjectExplorer: React.FC<ProjectExplorerProps> = ({
   const loadProjects = async () => {
     try {
       setLoading(true);
+      setError('');
       const data = await projectService.getProjects();
       setProjects(data.projects);
       
       // 如果有项目且没有选中项目，选中第一个
       if (data.projects.length > 0 && !selectedProject) {
         await loadProject(data.projects[0].id);
+      } else if (data.projects.length === 0) {
+        setError('暂无项目，请先创建一个项目');
       }
     } catch (err: any) {
+      console.error('加载项目列表失败:', err);
       setError(err.response?.data?.detail || '加载项目列表失败');
     } finally {
       setLoading(false);
@@ -64,6 +75,11 @@ export const ProjectExplorer: React.FC<ProjectExplorerProps> = ({
   };
 
   const loadProject = async (id: number) => {
+    // 防止重复加载同一个项目
+    if (selectedProject?.id === id && fileTree) {
+      return;
+    }
+
     try {
       setLoading(true);
       setError('');
@@ -80,7 +96,11 @@ export const ProjectExplorer: React.FC<ProjectExplorerProps> = ({
       const structure = await projectService.getProjectFiles(id);
       setFileTree(structure.structure);
     } catch (err: any) {
-      setError(err.response?.data?.detail || '加载项目失败');
+      console.error('加载项目失败:', err);
+      const errorMsg = err.response?.data?.detail || err.message || '加载项目失败';
+      setError(errorMsg);
+      // 清空文件树
+      setFileTree(null);
     } finally {
       setLoading(false);
     }

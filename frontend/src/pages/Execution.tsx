@@ -123,10 +123,9 @@ export const Execution: React.FC = () => {
 
       // 转换Playbook数据
       const playbookOptions = (playbooksData.items || [])
-        .filter(pb => !pb.is_directory)
         .map((pb) => ({
-          value: pb.path,
-          label: `📄 ${pb.name}`
+          value: pb.filename,
+          label: `📄 ${pb.display_name || pb.filename}`
         }))
       setPlaybooks(playbookOptions)
 
@@ -527,8 +526,8 @@ export const Execution: React.FC = () => {
               disabled={executing}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white/80 backdrop-blur-sm h-32"
             >
-              {hosts.map(host => (
-                <option key={host.value} value={host.value}>{host.label}</option>
+              {hosts.map((host, index) => (
+                <option key={`${host.value}-${index}`} value={host.value}>{host.label}</option>
               ))}
             </select>
           </div>
