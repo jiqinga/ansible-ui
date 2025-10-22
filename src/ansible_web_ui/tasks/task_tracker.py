@@ -159,6 +159,13 @@ class TaskTracker:
             
             # 存储更新后的任务信息
             self._store_task_info(task_info)
+            
+            # 计算执行时长
+            duration = None
+            if task_info.start_time:
+                end_time = task_info.end_time or now()
+                duration = (end_time - task_info.start_time).total_seconds()
+            
             status_payload = {
                 "status": task_info.status,
                 "progress": task_info.progress,
@@ -166,6 +173,7 @@ class TaskTracker:
                 "error_message": task_info.error_message,
                 "start_time": task_info.start_time.isoformat() if task_info.start_time else None,
                 "end_time": task_info.end_time.isoformat() if task_info.end_time else None,
+                "duration": duration,
             }
             if task_info.result is not None:
                 status_payload["result"] = task_info.result

@@ -143,7 +143,7 @@ export class DashboardService {
    */
   static async getRecentTasks(limit: number = 10): Promise<RecentTask[]> {
     try {
-      const response = await apiClient.get(`/api/v1/history/executions?limit=${limit}&sort_by=created_at&sort_order=desc`)
+      const response = await apiClient.get(`/history/executions?limit=${limit}&sort_by=created_at&sort_order=desc`)
       
       return response.data.items.map((item: any) => ({
         id: item.id,
@@ -213,7 +213,7 @@ export class DashboardService {
    */
   static async getExecutionTrends(days: number = 7): Promise<TrendData[]> {
     try {
-      const response = await apiClient.get(`/api/v1/history/trends?days=${days}`)
+      const response = await apiClient.get(`/history/trends?days=${days}`)
       const trendsData = response.data.trends
       
       // 转换后端返回的 daily_trends 格式为前端期望的格式
@@ -239,7 +239,7 @@ export class DashboardService {
    */
   static async getSystemAlerts(limit: number = 5): Promise<SystemAlert[]> {
     try {
-      const response = await apiClient.get(`/api/v1/monitoring/alerts?limit=${limit}`)
+      const response = await apiClient.get(`/monitoring/alerts?limit=${limit}`)
       return response.data.alerts || []
     } catch (error) {
       console.error('获取系统警告失败:', error)

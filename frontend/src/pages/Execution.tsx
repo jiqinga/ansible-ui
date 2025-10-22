@@ -103,6 +103,7 @@ export const Execution: React.FC = () => {
   useEffect(() => {
     return () => {
       if (wsRef.current) {
+        console.log('🧹 组件卸载，关闭WebSocket连接')
         wsRef.current.close()
         wsRef.current = null
       }
@@ -246,12 +247,22 @@ export const Execution: React.FC = () => {
           ...prev,
           status: message.data.status,
           progress: message.data.progress,
-          current_step: message.data.current_step
+          current_step: message.data.current_step,
+          start_time: message.data.start_time || prev.start_time,
+          end_time: message.data.end_time || prev.end_time,
+          duration: message.data.duration !== undefined ? message.data.duration : prev.duration,
+          error_message: message.data.error_message || prev.error_message
         } : null)
         
-        // 任务完成时停止执行状态
+        // 任务完成时停止执行状态并关闭WebSocket连接
         if (['SUCCESS', 'FAILURE', 'REVOKED'].includes(message.data.status)) {
           setExecuting(false)
+          // 任务已完成，主动关闭WebSocket连接释放资源
+          if (wsRef.current) {
+            console.log('✅ 任务已完成，关闭WebSocket连接')
+            wsRef.current.close()
+            wsRef.current = null
+          }
         }
         break
       

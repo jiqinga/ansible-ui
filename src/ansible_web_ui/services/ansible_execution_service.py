@@ -246,7 +246,7 @@ class AnsibleExecutionService:
             
             # 构建Ansible命令
             command = self._build_ansible_command(
-                playbook_path, inventory_path, options or AnsibleExecutionOptions()
+                playbook_path, inventory_path, options or AnsibleExecutionOptions(), inventory_targets
             )
             
             log_handler.write_log(f"🔧 执行命令: {' '.join(command)}")
@@ -383,7 +383,8 @@ class AnsibleExecutionService:
         self,
         playbook_path: str,
         inventory_path: str,
-        options: AnsibleExecutionOptions
+        options: AnsibleExecutionOptions,
+        inventory_targets: Optional[List[str]] = None
     ) -> List[str]:
         """构建Ansible命令"""
         command = ["ansible-playbook"]
@@ -397,8 +398,14 @@ class AnsibleExecutionService:
             command.append("-" + "v" * min(options.verbose, 4))
         
         # 限制主机
+        # 优先使用 options.limit，如果没有则使用 inventory_targets
         if options.limit:
             command.extend(["--limit", options.limit])
+        elif inventory_targets:
+            # 将用户选择的主机列表转换为 --limit 参数
+            # 这样可以确保只在用户选择的主机上执行，而不是 playbook 中定义的所有主机
+            limit_hosts = ",".join(inventory_targets)
+            command.extend(["--limit", limit_hosts])
         
         # 标签
         if options.tags:
