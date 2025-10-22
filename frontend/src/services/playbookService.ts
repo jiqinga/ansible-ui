@@ -149,12 +149,11 @@ export class PlaybookService {
   }
 
   /**
-   * 💾 保存Playbook文件内容
+   * 💾 保存Playbook文件内容（通过ID更新数据库）
    */
-  static async savePlaybookContent(path: string, content: string): Promise<void> {
+  static async savePlaybookContent(playbookId: number, content: string): Promise<void> {
     try {
-      await apiClient.put(`/playbooks/content`, {
-        path,
+      await apiClient.put(`/playbooks/${playbookId}/content`, {
         content
       })
     } catch (error) {
@@ -178,13 +177,11 @@ export class PlaybookService {
   }
 
   /**
-   * 🗑️ 删除Playbook文件
+   * 🗑️ 删除Playbook文件（通过ID）
    */
-  static async deletePlaybook(path: string): Promise<void> {
+  static async deletePlaybook(playbookId: number): Promise<void> {
     try {
-      await apiClient.delete(`/playbooks`, {
-        params: { path }
-      })
+      await apiClient.delete(`/playbooks/${playbookId}`)
     } catch (error) {
       console.error('❌ 删除Playbook失败:', error)
       throw new Error('删除文件失败，请检查文件是否存在或权限')

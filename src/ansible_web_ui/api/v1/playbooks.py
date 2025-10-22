@@ -537,7 +537,7 @@ async def sync_playbooks(
 @router.put("/{playbook_id}/content", response_model=PlaybookValidationResult, summary="更新Playbook内容并验证")
 async def update_playbook_content_with_validation(
     playbook_id: int,
-    content: str,
+    request_data: dict,
     db: AsyncSession = Depends(get_async_db_session),
     current_user: User = Depends(get_current_user)
 ):
@@ -545,7 +545,19 @@ async def update_playbook_content_with_validation(
     更新Playbook内容并返回验证结果
     
     同时更新文件内容和数据库记录，返回验证结果。
+    
+    请求体格式:
+    {
+        "content": "playbook内容"
+    }
     """
+    content = request_data.get("content")
+    if content is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="缺少必需参数: content"
+        )
+    
     service = PlaybookService(db)
     
     try:

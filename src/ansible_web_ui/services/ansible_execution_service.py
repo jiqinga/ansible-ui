@@ -249,45 +249,59 @@ class AnsibleExecutionService:
                 playbook_name, inventory_targets, log_handler
             )
             
-            # 构建Ansible命令
-            command = self._build_ansible_command(
-                playbook_path, inventory_path, options or AnsibleExecutionOptions(), inventory_targets
-            )
+            # 记录原始 playbook 路径，用于判断是否需要清理临时文件
+            original_playbook_path = str(Path(self.settings.PLAYBOOK_DIR) / self._normalize_playbook_path(playbook_name))
+            is_temp_playbook = playbook_path != original_playbook_path
             
-            log_handler.write_log(f"🔧 执行命令: {' '.join(command)}")
-            
-            # 更新任务状态
-            self.task_tracker.update_task_status(
-                task_id,
-                TaskStatus.STARTED,
-                progress=20,
-                current_step="启动Ansible进程"
-            )
-            
-            # 执行Ansible命令
-            result = await self._execute_ansible_command(
-                task_id, command, log_handler
-            )
-            
-            # 解析执行结果
-            execution_result = self._parse_execution_result(
-                task_id, playbook_name, start_time, result, log_handler
-            )
-            
-            # 更新最终状态
-            final_status = TaskStatus.SUCCESS if execution_result.exit_code == 0 else TaskStatus.FAILURE
-            self.task_tracker.update_task_status(
-                task_id,
-                final_status,
-                progress=100,
-                result=execution_result.model_dump()
-            )
-            
-            log_handler.write_log(
-                f"✅ Playbook执行完成，状态: {execution_result.status}"
-            )
-            
-            return execution_result
+            try:
+                # 构建Ansible命令
+                command = self._build_ansible_command(
+                    playbook_path, inventory_path, options or AnsibleExecutionOptions(), inventory_targets
+                )
+                
+                log_handler.write_log(f"🔧 执行命令: {' '.join(command)}")
+                
+                # 更新任务状态
+                self.task_tracker.update_task_status(
+                    task_id,
+                    TaskStatus.STARTED,
+                    progress=20,
+                    current_step="启动Ansible进程"
+                )
+                
+                # 执行Ansible命令
+                result = await self._execute_ansible_command(
+                    task_id, command, log_handler
+                )
+                
+                # 解析执行结果
+                execution_result = self._parse_execution_result(
+                    task_id, playbook_name, start_time, result, log_handler
+                )
+                
+                # 更新最终状态
+                final_status = TaskStatus.SUCCESS if execution_result.exit_code == 0 else TaskStatus.FAILURE
+                self.task_tracker.update_task_status(
+                    task_id,
+                    final_status,
+                    progress=100,
+                    result=execution_result.model_dump()
+                )
+                
+                log_handler.write_log(
+                    f"✅ Playbook执行完成，状态: {execution_result.status}"
+                )
+                
+                return execution_result
+                
+            finally:
+                # 清理临时 playbook 文件
+                if is_temp_playbook:
+                    try:
+                        Path(playbook_path).unlink()
+                        log_handler.write_log("🧹 已清理临时 Playbook 文件")
+                    except Exception as e:
+                        log_handler.write_log(f"⚠️ 清理临时 Playbook 文件失败: {str(e)}", "WARN")
             
         except Exception as e:
             error_message = f"Playbook执行失败: {str(e)}"
@@ -368,13 +382,97 @@ class AnsibleExecutionService:
         if not playbook_path.exists():
             raise FileNotFoundError(f"Playbook文件不存在: {playbook_name}")
         
+        # 创建临时 playbook 副本，将 hosts 字段替换为 all
+        # 这样可以确保用户选择的主机能够被执行，无论 playbook 中定义的是什么
+        temp_playbook_path = await self._create_temporary_playbook(playbook_path, log_handler)
+        
         # 创建临时inventory文件
         inventory_path = await self._create_temporary_inventory(inventory_targets)
         
         log_handler.write_log(f"📁 Playbook路径: {playbook_path}")
         log_handler.write_log(f"📋 Inventory路径: {inventory_path}")
         
-        return str(playbook_path), inventory_path
+        return temp_playbook_path, inventory_path
+    
+    async def _create_temporary_playbook(
+        self,
+        original_playbook_path: Path,
+        log_handler: LogStreamHandler
+    ) -> str:
+        """
+        创建临时 playbook 副本，将所有 play 的 hosts 字段替换为 all
+        
+        这样可以确保用户在前端选择的主机能够被执行，
+        无论原始 playbook 中定义的 hosts 是什么（主机名、IP、组名等）
+        
+        Args:
+            original_playbook_path: 原始 playbook 文件路径
+            log_handler: 日志处理器
+            
+        Returns:
+            str: 临时 playbook 文件路径
+        """
+        try:
+            # 读取原始 playbook
+            with open(original_playbook_path, 'r', encoding='utf-8') as f:
+                playbook_content = yaml.safe_load(f)
+            
+            # 检查是否需要修改
+            needs_modification = False
+            if isinstance(playbook_content, list):
+                for play in playbook_content:
+                    if isinstance(play, dict):
+                        if 'hosts' not in play:
+                            # 如果没有 hosts 字段，添加 hosts: all
+                            needs_modification = True
+                            play['hosts'] = 'all'
+                            log_handler.write_log(
+                                f"➕ 为 Play '{play.get('name', '未命名')}' 添加 hosts: all"
+                            )
+                        elif play['hosts'] != 'all':
+                            # 如果 hosts 不是 all，替换为 all
+                            needs_modification = True
+                            original_hosts = play['hosts']
+                            play['hosts'] = 'all'
+                            log_handler.write_log(
+                                f"🔄 自动调整 Play '{play.get('name', '未命名')}' 的 hosts: {original_hosts} → all"
+                            )
+            
+            # 如果不需要修改，直接返回原始路径
+            if not needs_modification:
+                return str(original_playbook_path)
+            
+            # 创建临时文件
+            temp_file = tempfile.NamedTemporaryFile(
+                mode='w',
+                suffix='.yml',
+                delete=False,
+                dir=self.settings.PLAYBOOK_DIR,
+                encoding='utf-8'
+            )
+            
+            try:
+                # 写入修改后的内容
+                yaml.dump(
+                    playbook_content,
+                    temp_file,
+                    default_flow_style=False,
+                    allow_unicode=True,
+                    sort_keys=False
+                )
+                temp_file.flush()
+                
+                log_handler.write_log(f"📝 已创建临时 Playbook: {temp_file.name}")
+                
+                return temp_file.name
+                
+            finally:
+                temp_file.close()
+                
+        except Exception as e:
+            log_handler.write_log(f"⚠️ 创建临时 Playbook 失败，使用原始文件: {str(e)}", "WARN")
+            # 如果创建失败，返回原始路径
+            return str(original_playbook_path)
     
     async def _create_temporary_inventory(self, inventory_targets: List[str]) -> str:
         """

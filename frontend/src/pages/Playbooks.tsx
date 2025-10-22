@@ -122,7 +122,8 @@ const Playbooks: React.FC = () => {
 
     setIsSaving(true)
     try {
-      await PlaybookService.savePlaybookContent(selectedPlaybook.file_path || `playbooks/${selectedPlaybook.filename}`, editorContent)
+      // 使用Playbook ID保存到数据库
+      await PlaybookService.savePlaybookContent(selectedPlaybook.id, editorContent)
       setOriginalContent(editorContent)
       setIsModified(false)
       success(`✅ ${selectedPlaybook.filename} 保存成功`)
@@ -197,7 +198,8 @@ const Playbooks: React.FC = () => {
     if (!confirm(`⚠️ 确定要删除 ${playbook.filename} 吗？\n\n此操作无法撤销。`)) return
 
     try {
-      await PlaybookService.deletePlaybook(playbook.file_path || `playbooks/${playbook.filename}`)
+      // 使用Playbook ID删除
+      await PlaybookService.deletePlaybook(playbook.id)
       success(`✅ ${playbook.filename} 已删除`)
 
       // 🔄 重新加载列表
