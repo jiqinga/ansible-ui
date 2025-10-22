@@ -229,7 +229,12 @@ class AnsibleExecutionService:
         
         try:
             log_handler.write_log(f"🚀 开始执行Playbook: {playbook_name}")
-            log_handler.write_log(f"🎯 目标主机: {', '.join(inventory_targets)}")
+            log_handler.write_log(f"🎯 目标主机组: {', '.join(inventory_targets)}")
+            
+            # 获取主机的实际 IP 地址
+            host_ips = await self._get_host_ips(inventory_targets)
+            if host_ips:
+                log_handler.write_log(f"📍 目标主机: {', '.join(host_ips)}")
             
             # 更新任务状态
             self.task_tracker.update_task_status(
@@ -304,6 +309,48 @@ class AnsibleExecutionService:
                 error_message=error_message
             )
     
+    async def _get_host_ips(self, inventory_targets: List[str]) -> List[str]:
+        """
+        获取主机的实际 IP 地址列表
+        
+        Args:
+            inventory_targets: 主机名列表
+            
+        Returns:
+            List[str]: IP 地址列表（格式：hostname(ip:port)）
+        """
+        from ansible_web_ui.services.host_service import HostService
+        from ansible_web_ui.core.database import get_db_session
+        
+        host_ips = []
+        
+        async for db in get_db_session():
+            host_service = HostService(db)
+            
+            for target in inventory_targets:
+                # 跳过 localhost
+                if target.lower() == "localhost":
+                    host_ips.append("localhost(127.0.0.1)")
+                    continue
+                
+                # 从数据库获取主机信息
+                host = await host_service.get_by_hostname(target)
+                
+                if host and host.is_active and host.ansible_host:
+                    # 格式：hostname(ip:port)
+                    port_info = f":{host.ansible_port}" if host.ansible_port and host.ansible_port != 22 else ""
+                    host_ips.append(f"{host.hostname}({host.ansible_host}{port_info})")
+                elif host and host.is_active:
+                    # 有主机但没有配置 IP
+                    host_ips.append(f"{host.hostname}(未配置IP)")
+                else:
+                    # 主机不在数据库中或未激活
+                    host_ips.append(f"{target}(未知)")
+            
+            break
+        
+        return host_ips
+    
     async def _prepare_execution_environment(
         self,
         playbook_name: str,
@@ -337,6 +384,9 @@ class AnsibleExecutionService:
         - 如果目标是数据库中的主机名，会从主机配置中读取连接信息
         - 始终包含 localhost，以支持本地执行的 playbook
         """
+        from ansible_web_ui.services.host_service import HostService
+        from ansible_web_ui.core.database import get_db_session
+        
         # 创建临时文件
         temp_file = tempfile.NamedTemporaryFile(
             mode='w', suffix='.ini', delete=False, dir=self.settings.INVENTORY_DIR
@@ -349,11 +399,56 @@ class AnsibleExecutionService:
             
             # 写入目标主机信息
             temp_file.write("[targets]\n")
-            for target in inventory_targets:
-                # 如果目标就是 localhost，跳过（已经在 [local] 组中）
-                if target.lower() == "localhost":
-                    continue
-                temp_file.write(f"{target}\n")
+            
+            # 获取数据库会话
+            async for db in get_db_session():
+                host_service = HostService(db)
+                
+                for target in inventory_targets:
+                    # 如果目标就是 localhost，跳过（已经在 [local] 组中）
+                    if target.lower() == "localhost":
+                        continue
+                    
+                    # 尝试从数据库中获取主机配置
+                    host = await host_service.get_by_hostname(target)
+                    
+                    if host and host.is_active:
+                        # 使用数据库中的完整配置
+                        host_line = f"{host.hostname}"
+                        
+                        # 添加连接参数
+                        if host.ansible_host:
+                            host_line += f" ansible_host={host.ansible_host}"
+                        if host.ansible_port and host.ansible_port != 22:
+                            host_line += f" ansible_port={host.ansible_port}"
+                        if host.ansible_user:
+                            host_line += f" ansible_user={host.ansible_user}"
+                        if host.ansible_ssh_private_key_file:
+                            host_line += f" ansible_ssh_private_key_file={host.ansible_ssh_private_key_file}"
+                        if host.ansible_become:
+                            host_line += f" ansible_become=true"
+                            if host.ansible_become_user:
+                                host_line += f" ansible_become_user={host.ansible_become_user}"
+                            if host.ansible_become_method:
+                                host_line += f" ansible_become_method={host.ansible_become_method}"
+                        
+                        # 添加自定义变量
+                        variables = host.get_variables()
+                        for key, value in variables.items():
+                            if isinstance(value, bool):
+                                host_line += f" {key}={'true' if value else 'false'}"
+                            elif isinstance(value, (int, float)):
+                                host_line += f" {key}={value}"
+                            else:
+                                host_line += f" {key}='{value}'"
+                        
+                        temp_file.write(f"{host_line}\n")
+                    else:
+                        # 主机不在数据库中，使用简单的主机名
+                        # 这种情况下，Ansible 会尝试直接连接到该主机名
+                        temp_file.write(f"{target}\n")
+                
+                break  # 只需要一个数据库会话
             
             temp_file.flush()
             return temp_file.name
