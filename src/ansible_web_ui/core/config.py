@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     # 文件路径配置
     PLAYBOOK_DIR: str = Field(
         default="./playbooks",
-        description="Playbook文件目录"
+        description="Playbook文件目录（用于Ansible执行和临时文件存储，不再用于缓存）"
     )
     PROJECTS_BASE_PATH: str = Field(
         default="./projects",

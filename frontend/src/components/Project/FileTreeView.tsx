@@ -10,6 +10,7 @@ import {
   DocumentIcon,
   ChevronRightIcon,
   ChevronDownIcon,
+  TrashIcon,
 } from '@heroicons/react/24/outline';
 import type { FileNode } from '../../types/project';
 
@@ -17,6 +18,7 @@ interface FileTreeViewProps {
   node: FileNode;
   level?: number;
   onNodeClick?: (node: FileNode) => void;
+  onNodeDelete?: (node: FileNode) => void;
   selectedPath?: string;
 }
 
@@ -24,13 +26,28 @@ export const FileTreeView: React.FC<FileTreeViewProps> = ({
   node,
   level = 0,
   onNodeClick,
+  onNodeDelete,
   selectedPath,
 }) => {
-  const [isExpanded, setIsExpanded] = useState(level < 2); // 默认展开前两层
+  // 🔄 使用 node.path 作为 key 来保持展开状态的稳定性
+  const [isExpanded, setIsExpanded] = useState(() => {
+    // 默认展开前两层，或者如果包含选中的文件则展开
+    return level < 2 || (selectedPath ? selectedPath.startsWith(node.path + '/') : false);
+  });
+
+  // 🎯 悬浮状态
+  const [isHovered, setIsHovered] = useState(false);
 
   const isDirectory = node.type === 'directory';
   const hasChildren = isDirectory && node.children && node.children.length > 0;
   const isSelected = node.path === selectedPath;
+
+  // 🎯 当选中路径变化时，自动展开包含该路径的目录
+  React.useEffect(() => {
+    if (isDirectory && selectedPath && selectedPath.startsWith(node.path + '/')) {
+      setIsExpanded(true);
+    }
+  }, [selectedPath, isDirectory, node.path]);
 
   const handleToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -45,6 +62,13 @@ export const FileTreeView: React.FC<FileTreeViewProps> = ({
     }
     if (isDirectory && !isExpanded) {
       setIsExpanded(true);
+    }
+  };
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onNodeDelete) {
+      onNodeDelete(node);
     }
   };
 
@@ -83,11 +107,13 @@ export const FileTreeView: React.FC<FileTreeViewProps> = ({
       <motion.div
         className={`
           flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer
-          transition-all duration-200
+          transition-all duration-200 group
           ${isSelected ? 'bg-white/20 backdrop-blur-md' : 'hover:bg-white/10'}
         `}
         style={{ paddingLeft: `${level * 20 + 12}px` }}
         onClick={handleClick}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
         whileHover={{ x: 2 }}
       >
         {/* 展开/折叠图标 */}
@@ -124,6 +150,23 @@ export const FileTreeView: React.FC<FileTreeViewProps> = ({
             {formatFileSize(node.size)}
           </span>
         )}
+
+        {/* 🗑️ 删除按钮 - 悬浮时显示 */}
+        <AnimatePresence>
+          {isHovered && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              transition={{ duration: 0.15 }}
+              onClick={handleDelete}
+              className="ml-auto p-1 rounded hover:bg-red-500/30 transition-colors flex-shrink-0"
+              title={`删除${isDirectory ? '目录' : '文件'}`}
+            >
+              <TrashIcon className="w-4 h-4 text-red-400 hover:text-red-300" />
+            </motion.button>
+          )}
+        </AnimatePresence>
       </motion.div>
 
       {/* 子节点 */}
@@ -142,6 +185,7 @@ export const FileTreeView: React.FC<FileTreeViewProps> = ({
                 node={child}
                 level={level + 1}
                 onNodeClick={onNodeClick}
+                onNodeDelete={onNodeDelete}
                 selectedPath={selectedPath}
               />
             ))}

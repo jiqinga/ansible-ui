@@ -5,6 +5,7 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, validator
+from .project_file_schemas import FileTreeNode
 
 
 class ProjectBase(BaseModel):
@@ -62,23 +63,10 @@ class ProjectListResponse(BaseModel):
     limit: int = Field(..., description="限制数量")
 
 
-class FileNode(BaseModel):
-    """文件树节点"""
-    name: str = Field(..., description="文件/目录名称")
-    type: str = Field(..., description="类型：file/directory")
-    path: str = Field(..., description="相对路径")
-    size: Optional[int] = Field(None, description="文件大小（字节）")
-    children: Optional[List['FileNode']] = Field(None, description="子节点")
-
-
-# 更新前向引用
-FileNode.model_rebuild()
-
-
 class ProjectStructureResponse(BaseModel):
     """项目结构响应模式"""
     project: ProjectResponse = Field(..., description="项目信息")
-    structure: FileNode = Field(..., description="目录树结构")
+    structure: FileTreeNode = Field(..., description="目录树结构")
 
 
 class ProjectValidationResponse(BaseModel):
@@ -145,3 +133,7 @@ class FileContentResponse(BaseModel):
     """文件内容响应"""
     path: str = Field(..., description="文件相对路径")
     content: str = Field(..., description="文件内容")
+    size: int = Field(..., description="文件大小（字节）")
+    file_hash: Optional[str] = Field(None, description="文件哈希值（SHA-256）")
+    hash: Optional[str] = Field(None, description="文件哈希值（SHA-256，已弃用，使用file_hash）")
+    last_modified: datetime = Field(..., description="最后修改时间")

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 
 import Editor from '@monaco-editor/react'
@@ -19,6 +20,11 @@ import GlassInput from '../components/UI/GlassInput'
 import GlassModal from '../components/UI/GlassModal'
 import { useNotification } from '../contexts/NotificationContext'
 import PlaybookService, { ValidationResult } from '../services/playbookService'
+import { registerAnsibleCompletionProvider, registerAnsibleTheme } from '../utils/ansibleCompletionProvider'
+import { extractErrorMessage } from '../utils/errorHandler'
+
+// 🎯 标记是否已注册 Ansible 功能
+let ansibleFeaturesRegistered = false
 
 /**
  * 🎨 Playbook编辑器页面
@@ -43,6 +49,8 @@ const Playbooks: React.FC = () => {
   const [isModified, setIsModified] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isEditorReady, setIsEditorReady] = useState(false)
+  const [isLoadingContent, setIsLoadingContent] = useState(false)
 
   // ✅ 验证状态
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null)
@@ -56,6 +64,10 @@ const Playbooks: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newFileName, setNewFileName] = useState('')
 
+  // 🗑️ 删除确认对话框
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [playbookToDelete, setPlaybookToDelete] = useState<any | null>(null)
+
   /**
    * 📂 加载Playbook列表
    */
@@ -65,30 +77,8 @@ const Playbooks: React.FC = () => {
       const result = await PlaybookService.getPlaybooks(1, 100, search)
       setFilteredPlaybooks(result.items)
     } catch (err: any) {
-      const errorMsg = err.response?.data?.detail || err.message || '无法加载文件列表'
+      const errorMsg = extractErrorMessage(err, '无法加载文件列表')
       error(`❌ ${errorMsg}`)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [error])
-
-  /**
-   * 📄 加载Playbook内容
-   */
-  const loadPlaybookContent = useCallback(async (playbook: any) => {
-    setIsLoading(true)
-    try {
-      const response = await PlaybookService.getPlaybookContent(playbook.id)
-      setEditorContent(response.content)
-      setOriginalContent(response.content)
-      setSelectedPlaybook(playbook)
-      setIsModified(false)
-
-      // 🔄 自动验证
-      validateContent(response.content)
-    } catch (err: any) {
-      const errorMsg = err.response?.data?.detail || err.message || '无法读取文件内容'
-      error(`❌ 加载失败：${errorMsg}`)
     } finally {
       setIsLoading(false)
     }
@@ -115,6 +105,36 @@ const Playbooks: React.FC = () => {
   }, [])
 
   /**
+   * 📄 加载Playbook内容
+   */
+  const loadPlaybookContent = useCallback(async (playbook: any) => {
+    // 🎯 立即设置选中状态，显示加载指示器
+    setSelectedPlaybook(playbook)
+    setIsLoadingContent(true)
+    
+    try {
+      const response = await PlaybookService.getPlaybookContent(playbook.id)
+      
+      // 🚀 内容加载完成后立即更新编辑器
+      setEditorContent(response.content)
+      setOriginalContent(response.content)
+      setIsModified(false)
+
+      // 🔄 自动验证（异步执行，不阻塞UI）
+      setTimeout(() => {
+        validateContent(response.content)
+      }, 100)
+    } catch (err: any) {
+      const errorMsg = extractErrorMessage(err, '无法读取文件内容')
+      error(`❌ 加载失败：${errorMsg}`)
+      // 加载失败时清空选中状态
+      setSelectedPlaybook(null)
+    } finally {
+      setIsLoadingContent(false)
+    }
+  }, [error, validateContent])
+
+  /**
    * 💾 保存Playbook内容
    */
   const savePlaybook = useCallback(async () => {
@@ -131,7 +151,7 @@ const Playbooks: React.FC = () => {
       // 重新加载列表
       loadPlaybooks(searchTerm)
     } catch (err: any) {
-      const errorMsg = err.response?.data?.detail || err.message || '保存失败'
+      const errorMsg = extractErrorMessage(err, '保存失败')
       error(`❌ ${errorMsg}`)
     } finally {
       setIsSaving(false)
@@ -178,35 +198,39 @@ const Playbooks: React.FC = () => {
         error(`📁 文件名冲突：${fileName} 已经存在，请尝试使用其他名称`)
       } else if (err.response?.status === 400) {
         // 请求参数错误
-        const errorMsg = err.response?.data?.detail || '文件名格式不正确，请使用有效的文件名'
+        const errorMsg = extractErrorMessage(err, '文件名格式不正确，请使用有效的文件名')
         error(`⚠️ ${errorMsg}`)
-      } else if (err.response?.data?.detail) {
-        // 显示后端返回的详细错误信息
-        error(`❌ ${err.response.data.detail}`)
-      } else if (err.message) {
-        error(`❌ 创建失败：${err.message}`)
       } else {
-        error('❌ 创建文件失败，请检查网络连接后重试')
+        // 显示后端返回的详细错误信息
+        error(`❌ ${extractErrorMessage(err, '创建文件失败')}`)
       }
     }
   }, [newFileName, searchTerm, loadPlaybooks, success, error])
 
   /**
-   * 🗑️ 删除Playbook
+   * 🗑️ 显示删除确认对话框
    */
-  const deletePlaybook = useCallback(async (playbook: any) => {
-    if (!confirm(`⚠️ 确定要删除 ${playbook.filename} 吗？\n\n此操作无法撤销。`)) return
+  const showDeleteConfirmation = useCallback((playbook: any) => {
+    setPlaybookToDelete(playbook)
+    setShowDeleteDialog(true)
+  }, [])
+
+  /**
+   * 🗑️ 执行删除Playbook
+   */
+  const confirmDeletePlaybook = useCallback(async () => {
+    if (!playbookToDelete) return
 
     try {
       // 使用Playbook ID删除
-      await PlaybookService.deletePlaybook(playbook.id)
-      success(`✅ ${playbook.filename} 已删除`)
+      await PlaybookService.deletePlaybook(playbookToDelete.id)
+      success(`✅ ${playbookToDelete.filename} 已删除`)
 
       // 🔄 重新加载列表
       loadPlaybooks(searchTerm)
 
       // 如果删除的是当前打开的Playbook，清空编辑器
-      if (selectedPlaybook?.id === playbook.id) {
+      if (selectedPlaybook?.id === playbookToDelete.id) {
         setSelectedPlaybook(null)
         setEditorContent('')
         setOriginalContent('')
@@ -214,10 +238,21 @@ const Playbooks: React.FC = () => {
         setValidationResult(null)
       }
     } catch (err: any) {
-      const errorMsg = err.response?.data?.detail || err.message || '删除失败'
+      const errorMsg = extractErrorMessage(err, '删除失败')
       error(`❌ ${errorMsg}`)
+    } finally {
+      setShowDeleteDialog(false)
+      setPlaybookToDelete(null)
     }
-  }, [searchTerm, loadPlaybooks, selectedPlaybook, success, error])
+  }, [playbookToDelete, searchTerm, loadPlaybooks, selectedPlaybook, success, error])
+
+  /**
+   * 🚫 取消删除
+   */
+  const cancelDeletePlaybook = useCallback(() => {
+    setShowDeleteDialog(false)
+    setPlaybookToDelete(null)
+  }, [])
 
 
 
@@ -314,7 +349,7 @@ const Playbooks: React.FC = () => {
             variant="ghost"
             onClick={(e) => {
               e.stopPropagation()
-              deletePlaybook(playbook)
+              showDeleteConfirmation(playbook)
             }}
             className="opacity-0 group-hover:opacity-100 transition-opacity"
           >
@@ -537,35 +572,93 @@ const Playbooks: React.FC = () => {
               </div>
 
               {/* 🎨 Monaco编辑器 */}
-              <div className="flex-1 rounded-lg overflow-hidden border border-white/20">
+              <div className="flex-1 rounded-lg overflow-hidden border border-white/20 relative">
                 {selectedPlaybook ? (
-                  <Editor
-                    height="100%"
-                    defaultLanguage="yaml"
-                    value={editorContent}
-                    onChange={handleEditorChange}
-                    theme="vs-dark"
-                    options={{
-                      minimap: { enabled: false },
-                      fontSize: 14,
-                      lineNumbers: 'on',
-                      roundedSelection: false,
-                      scrollBeyondLastLine: false,
-                      automaticLayout: true,
-                      tabSize: 2,
-                      insertSpaces: true,
-                      wordWrap: 'on',
-                      folding: true,
-                      lineDecorationsWidth: 10,
-                      lineNumbersMinChars: 3,
-                      glyphMargin: false,
-                      renderLineHighlight: 'line',
-                      selectOnLineNumbers: true,
-                      cursorStyle: 'line',
-                      cursorBlinking: 'blink',
-                      renderWhitespace: 'selection'
-                    }}
-                  />
+                  <>
+                    {/* 📥 内容加载指示器 */}
+                    {isLoadingContent && (
+                      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm z-10 flex items-center justify-center">
+                        <div className="text-center">
+                          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white/70 mx-auto mb-4"></div>
+                          <p className="text-white/90 text-lg font-medium">
+                            📥 正在加载文件内容...
+                          </p>
+                          <p className="text-white/60 text-sm mt-2">
+                            {selectedPlaybook.filename}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* 🎨 编辑器加载指示器 */}
+                    {!isEditorReady && !isLoadingContent && (
+                      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm z-10 flex items-center justify-center">
+                        <div className="text-center">
+                          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white/70 mx-auto mb-4"></div>
+                          <p className="text-white/90 text-lg font-medium">
+                            🎨 正在初始化编辑器...
+                          </p>
+                          <p className="text-white/60 text-sm mt-2">
+                            首次加载可能需要几秒钟
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    <Editor
+                      height="100%"
+                      defaultLanguage="yaml"
+                      value={editorContent}
+                      onChange={handleEditorChange}
+                      onMount={(editor, monaco) => {
+                        // 🎯 只注册一次 Ansible 功能
+                        if (!ansibleFeaturesRegistered) {
+                          registerAnsibleTheme(monaco)
+                          registerAnsibleCompletionProvider(monaco)
+                          ansibleFeaturesRegistered = true
+                        }
+                        
+                        // 🎨 应用主题
+                        monaco.editor.setTheme('ansible-dark')
+                        
+                        // ✅ 编辑器加载完成
+                        setIsEditorReady(true)
+                      }}
+                      theme="vs-dark"
+                      loading={
+                        <div className="h-full flex items-center justify-center bg-black/20">
+                          <div className="text-center">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white/70 mx-auto mb-4"></div>
+                            <p className="text-white/90 text-lg font-medium">
+                              🎨 正在加载编辑器...
+                            </p>
+                          </div>
+                        </div>
+                      }
+                      options={{
+                        minimap: { enabled: false },
+                        fontSize: 14,
+                        lineNumbers: 'on',
+                        roundedSelection: false,
+                        scrollBeyondLastLine: false,
+                        automaticLayout: true,
+                        tabSize: 2,
+                        insertSpaces: true,
+                        wordWrap: 'on',
+                        folding: true,
+                        lineDecorationsWidth: 10,
+                        lineNumbersMinChars: 3,
+                        glyphMargin: false,
+                        renderLineHighlight: 'line',
+                        selectOnLineNumbers: true,
+                        cursorStyle: 'line',
+                        cursorBlinking: 'blink',
+                        renderWhitespace: 'selection',
+                        // 🚀 性能优化选项
+                        readOnly: isLoadingContent, // 加载时设为只读
+                      }}
+                    />
+                  </>
                 ) : (
                   <div className="h-full flex items-center justify-center bg-black/20">
                     <div className="text-center text-white/50">
@@ -693,6 +786,56 @@ const Playbooks: React.FC = () => {
             </div>
           </div>
         </GlassModal>
+
+        {/* 🗑️ 删除确认对话框 */}
+        {showDeleteDialog && createPortal(
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9999]"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                cancelDeletePlaybook()
+              }
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-6 w-96 max-w-[90vw]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-xl font-semibold text-white mb-4">🗑️ 删除文件</h3>
+
+              <div className="mb-6">
+                <p className="text-gray-300 mb-2">
+                  确定要删除 <span className="font-semibold text-white">
+                    {playbookToDelete?.filename}
+                  </span> 吗？
+                </p>
+                <p className="text-sm text-red-400 mt-2">
+                  ⚠️ 此操作无法恢复！
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={confirmDeletePlaybook}
+                  className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600
+                           rounded-lg text-white font-medium transition-colors"
+                >
+                  确认删除
+                </button>
+                <button
+                  onClick={cancelDeletePlaybook}
+                  className="flex-1 px-4 py-2 bg-white/10 hover:bg-white/20
+                           rounded-lg text-white font-medium transition-colors"
+                >
+                  取消
+                </button>
+              </div>
+            </motion.div>
+          </div>,
+          document.body
+        )}
       </div>
     </div>
   )

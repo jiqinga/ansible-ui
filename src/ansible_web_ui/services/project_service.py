@@ -5,12 +5,18 @@
 """
 
 import yaml
+import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_
 from ansible_web_ui.models.project import Project
+from ansible_web_ui.models.project_file import ProjectFile
 from ansible_web_ui.services.base import BaseService
 from ansible_web_ui.services.storage_service import StorageService
+
+# 配置日志
+logger = logging.getLogger(__name__)
 
 
 # 项目模板定义
@@ -80,9 +86,10 @@ PROJECT_TEMPLATES = {
 class ProjectService(BaseService[Project]):
     """项目管理服务"""
     
-    def __init__(self, db_session: AsyncSession):
+    def __init__(self, db_session: AsyncSession, project_file_service=None):
         super().__init__(Project, db_session)
         self.storage_service = StorageService()
+        self._project_file_service = project_file_service
     
     async def create_project(
         self,
@@ -137,7 +144,7 @@ class ProjectService(BaseService[Project]):
         template_name: str
     ) -> None:
         """
-        根据模板创建项目结构
+        根据模板创建项目结构（使用数据库存储）
         
         Args:
             project: 项目实例
@@ -147,8 +154,72 @@ class ProjectService(BaseService[Project]):
         if not template:
             raise ValueError(f"未知的模板: {template_name}")
         
-        structure = template['structure']
-        await self._create_structure_recursive(project.name, "", structure)
+        logger.info(f"开始创建项目结构: project_id={project.id}, template={template_name}")
+        
+        try:
+            # 如果注入了 ProjectFileService，使用数据库存储
+            if self._project_file_service:
+                structure = template['structure']
+                # 收集所有文件列表
+                files = self._collect_files_from_structure("", structure)
+                
+                logger.info(f"收集到 {len(files)} 个文件，准备批量创建到数据库")
+                
+                # 调用 ProjectFileService.create_files_batch 批量创建文件到数据库
+                created_files = await self._project_file_service.create_files_batch(
+                    project.id,
+                    files
+                )
+                
+                logger.info(f"成功创建 {len(created_files)} 个文件到数据库")
+            else:
+                # 降级到文件系统存储（向后兼容）
+                logger.warning("未注入 ProjectFileService，使用文件系统存储")
+                structure = template['structure']
+                await self._create_structure_recursive(project.name, "", structure)
+                
+        except Exception as e:
+            logger.error(f"创建项目结构失败: {str(e)}", exc_info=True)
+            raise
+    
+    def _collect_files_from_structure(
+        self,
+        current_path: str,
+        structure: Dict[str, Any]
+    ) -> List[Tuple[str, str]]:
+        """
+        从模板结构中收集所有文件和目录
+        
+        Args:
+            current_path: 当前路径
+            structure: 结构定义
+            
+        Returns:
+            List[Tuple[str, str]]: 文件列表，每个元素是 (relative_path, content) 元组
+                对于目录，content 为空字符串，路径以 '/' 结尾表示目录
+        """
+        files = []
+        
+        for name, content in structure.items():
+            item_path = f"{current_path}/{name}" if current_path else name
+            
+            if isinstance(content, dict):
+                # 目录：先添加目录本身（如果是空目录或有子项）
+                # 移除路径末尾的 '/' 以保持一致性
+                dir_path = item_path.rstrip('/')
+                
+                # 如果是空目录，添加目录记录
+                if len(content) == 0:
+                    # 空目录：添加一个特殊标记，表示这是一个目录
+                    files.append((dir_path, "__DIRECTORY__"))
+                else:
+                    # 有子项的目录：递归收集子文件
+                    files.extend(self._collect_files_from_structure(dir_path, content))
+            elif isinstance(content, str):
+                # 文件：添加到列表
+                files.append((item_path, content))
+        
+        return files
     
     async def _create_structure_recursive(
         self,
@@ -157,7 +228,7 @@ class ProjectService(BaseService[Project]):
         structure: Dict[str, Any]
     ) -> None:
         """
-        递归创建目录结构
+        递归创建目录结构（文件系统存储，向后兼容）
         
         Args:
             project_name: 项目名称
@@ -205,17 +276,21 @@ class ProjectService(BaseService[Project]):
         project_id: int
     ) -> Dict[str, Any]:
         """
-        验证项目结构完整性
+        验证项目结构完整性（使用数据库存储）
         
         Args:
             project_id: 项目ID
         
         Returns:
-            验证结果字典
+            验证结果字典（is_valid、missing_files、missing_directories、warnings、structure）
         """
         project = await self.get_by_id(project_id)
         if not project:
             raise ValueError(f"项目不存在: {project_id}")
+        
+        # 如果没有注入 ProjectFileService，抛出异常
+        if not self._project_file_service:
+            raise ValueError("ProjectFileService 未注入，无法验证项目结构")
         
         # 根据项目类型定义必需的目录和文件
         required_structure = {
@@ -239,39 +314,102 @@ class ProjectService(BaseService[Project]):
         warnings = []
         structure_status = {}
         
-        # 检查必需的目录
+        # 使用 SQLAlchemy 查询检查必需的目录是否存在于数据库中
         for dir_name in required.get("directories", []):
-            exists = await self.storage_service.file_exists(project.name, dir_name)
-            structure_status[dir_name] = {
-                "exists": exists,
-                "required": True,
-                "type": "directory"
-            }
-            if not exists:
+            try:
+                # 查询数据库中是否存在该目录记录
+                result = await self.db.execute(
+                    select(ProjectFile).where(
+                        and_(
+                            ProjectFile.project_id == project_id,
+                            ProjectFile.relative_path == dir_name,
+                            ProjectFile.is_directory == True
+                        )
+                    )
+                )
+                dir_record = result.scalar_one_or_none()
+                exists = dir_record is not None
+                
+                structure_status[dir_name] = {
+                    "exists": exists,
+                    "required": True,
+                    "type": "directory"
+                }
+                if not exists:
+                    missing_directories.append(dir_name)
+            except Exception as e:
+                logger.error(f"检查目录失败: {dir_name}, 错误: {str(e)}")
+                structure_status[dir_name] = {
+                    "exists": False,
+                    "required": True,
+                    "type": "directory"
+                }
                 missing_directories.append(dir_name)
         
-        # 检查必需的文件
+        # 使用 SQLAlchemy 查询检查必需的文件是否存在于数据库中
         for file_name in required.get("files", []):
-            exists = await self.storage_service.file_exists(project.name, file_name)
-            structure_status[file_name] = {
-                "exists": exists,
-                "required": True,
-                "type": "file"
-            }
-            if not exists:
+            try:
+                # 查询数据库中是否存在该文件记录
+                result = await self.db.execute(
+                    select(ProjectFile).where(
+                        and_(
+                            ProjectFile.project_id == project_id,
+                            ProjectFile.relative_path == file_name,
+                            ProjectFile.is_directory == False
+                        )
+                    )
+                )
+                file_record = result.scalar_one_or_none()
+                exists = file_record is not None
+                
+                structure_status[file_name] = {
+                    "exists": exists,
+                    "required": True,
+                    "type": "file"
+                }
+                if not exists:
+                    missing_files.append(file_name)
+            except Exception as e:
+                logger.error(f"检查文件失败: {file_name}, 错误: {str(e)}")
+                structure_status[file_name] = {
+                    "exists": False,
+                    "required": True,
+                    "type": "file"
+                }
                 missing_files.append(file_name)
         
         # 检查可选的目录
         optional_dirs = ["group_vars", "host_vars", "files", "templates"]
         for dir_name in optional_dirs:
             if dir_name not in structure_status:
-                exists = await self.storage_service.file_exists(project.name, dir_name)
-                structure_status[dir_name] = {
-                    "exists": exists,
-                    "required": False,
-                    "type": "directory"
-                }
-                if not exists:
+                try:
+                    # 查询数据库中是否存在该目录记录
+                    result = await self.db.execute(
+                        select(ProjectFile).where(
+                            and_(
+                                ProjectFile.project_id == project_id,
+                                ProjectFile.relative_path == dir_name,
+                                ProjectFile.is_directory == True
+                            )
+                        )
+                    )
+                    dir_record = result.scalar_one_or_none()
+                    exists = dir_record is not None
+                    
+                    structure_status[dir_name] = {
+                        "exists": exists,
+                        "required": False,
+                        "type": "directory"
+                    }
+                    if not exists:
+                        warnings.append(f"可选目录 {dir_name} 不存在")
+                except Exception as e:
+                    logger.error(f"检查可选目录失败: {dir_name}, 错误: {str(e)}")
+                    structure_status[dir_name] = {
+                        "exists": False,
+                        "required": False,
+                        "type": "directory"
+                    }
                     warnings.append(f"可选目录 {dir_name} 不存在")
         
         is_valid = len(missing_directories) == 0 and len(missing_files) == 0
@@ -287,36 +425,47 @@ class ProjectService(BaseService[Project]):
     
     async def delete_project(
         self,
-        project_id: int,
-        delete_files: bool = True
+        project_id: int
     ) -> bool:
         """
         删除项目
         
         Args:
             project_id: 项目ID
-            delete_files: 是否删除文件系统中的文件
         
         Returns:
             bool: 是否删除成功
         """
         project = await self.get_by_id(project_id)
         if not project:
+            logger.warning(f"尝试删除不存在的项目: project_id={project_id}")
             return False
         
-        # 删除文件系统中的项目目录
-        if delete_files:
-            try:
-                project_path = self.storage_service.get_project_path(project.name)
-                if project_path.exists():
-                    import shutil
-                    shutil.rmtree(project_path)
-            except Exception as e:
-                # 记录错误但继续删除数据库记录
-                print(f"删除项目文件失败: {str(e)}")
+        logger.info(
+            f"开始删除项目: project_id={project_id}, name={project.name}, type={project.project_type}"
+        )
         
-        # 删除数据库记录（级联删除关联的playbooks和roles）
-        return await self.delete(project_id)
+        try:
+            # 删除项目对象
+            # ORM 级联删除会自动删除关联的 ProjectFile、Playbook、Role 等记录
+            # 必须使用 db.delete(object) 而不是 delete(Model).where() 才能触发级联删除
+            await self.db.delete(project)
+            await self.db.commit()
+            
+            logger.info(
+                f"项目删除成功: project_id={project_id}, name={project.name}"
+            )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(
+                f"删除项目时发生异常: project_id={project_id}, name={project.name}, error={str(e)}",
+                exc_info=True
+            )
+            # 回滚事务
+            await self.db.rollback()
+            raise
     
     async def get_project_files(
         self,

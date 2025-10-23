@@ -66,7 +66,10 @@ async def create_project(
     - simple: 简单单文件项目
     - role-based: 以Role为中心的项目
     """
-    project_service = ProjectService(db)
+    from ansible_web_ui.services.project_file_service import ProjectFileService
+    
+    project_file_service = ProjectFileService(db)
+    project_service = ProjectService(db, project_file_service)
     
     try:
         project = await project_service.create_project(
@@ -75,7 +78,7 @@ async def create_project(
             description=project_data.description,
             project_type=project_data.project_type,
             template=project_data.template,
-            created_by=current_user.id
+            created_by=current_user.id if current_user else None
         )
         return project
     except ValueError as e:
@@ -146,22 +149,17 @@ async def update_project(
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(
     project_id: int,
-    delete_files: bool = Query(False, description="是否同时删除文件系统中的项目文件"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
     🗑️ 删除项目
     
-    参数:
-    - delete_files: 是否同时删除文件系统中的项目文件（默认false）
+    删除项目及其所有关联的文件记录（通过ORM级联删除）
     """
     project_service = ProjectService(db)
     
-    success = await project_service.delete_project(
-        project_id=project_id,
-        delete_files=delete_files
-    )
+    success = await project_service.delete_project(project_id=project_id)
     
     if not success:
         raise HTTPException(
@@ -183,9 +181,12 @@ async def get_project_files(
     """
     📁 获取项目文件树
     
-    返回指定路径下的目录树结构
+    返回指定路径下的目录树结构（从数据库读取）
     """
+    from ansible_web_ui.services.project_file_service import ProjectFileService
+    
     project_service = ProjectService(db)
+    project_file_service = ProjectFileService(db)
     
     try:
         # 获取项目信息
@@ -200,24 +201,26 @@ async def get_project_files(
         if path is None:
             path = ""
         
-        # 获取文件树结构
-        structure = await project_service.get_project_files(
+        # 调用 ProjectFileService.get_file_tree 替代 ProjectService.get_project_files
+        structure = await project_file_service.get_file_tree(
             project_id=project_id,
             relative_path=path,
             max_depth=max_depth
         )
         
-        # 返回完整的响应
+        # 返回完整的响应（保持响应格式不变）
         return ProjectStructureResponse(
             project=project,
             structure=structure
         )
     except ValueError as e:
+        # 路径不合法返回 400
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except FileNotFoundError as e:
+        # 文件不存在返回 404
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
@@ -233,21 +236,59 @@ async def get_file_content(
 ):
     """
     📄 读取文件内容
+    
+    从数据库读取文件内容和元数据
     """
+    from ansible_web_ui.services.project_file_service import ProjectFileService
+    
     project_service = ProjectService(db)
+    project_file_service = ProjectFileService(db)
     
     try:
-        content = await project_service.read_file(project_id, path)
+        # 验证项目存在
+        project = await project_service.get_by_id(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"项目 {project_id} 不存在"
+            )
+        
+        # 调用 ProjectFileService.read_file 方法
+        content = await project_file_service.read_file(project_id, path)
+        
+        # 获取文件元数据
+        from sqlalchemy import select
+        from ansible_web_ui.models.project_file import ProjectFile
+        
+        query = select(ProjectFile).where(
+            ProjectFile.project_id == project_id,
+            ProjectFile.relative_path == path
+        )
+        result = await db.execute(query)
+        file_record = result.scalar_one_or_none()
+        
+        if not file_record:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"文件不存在: {path}"
+            )
+        
+        # 返回 FileContentResponse（包含 content、size、hash、last_modified）
         return FileContentResponse(
             path=path,
-            content=content
+            content=content,
+            size=file_record.file_size,
+            hash=file_record.file_hash,
+            last_modified=file_record.updated_at
         )
     except ValueError as e:
+        # 编码错误返回 400
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except FileNotFoundError as e:
+        # 文件不存在返回 404
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
@@ -266,16 +307,44 @@ async def write_file_content(
     
     如果文件不存在则创建，存在则覆盖
     """
+    from ansible_web_ui.services.project_file_service import ProjectFileService
+    
     project_service = ProjectService(db)
+    project_file_service = ProjectFileService(db)
     
     try:
-        await project_service.write_file(
-            project_id=project_id,
-            relative_path=file_data.path,
-            content=file_data.content
-        )
-        return {"message": "文件写入成功", "path": file_data.path}
+        # 验证项目存在
+        project = await project_service.get_by_id(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"项目 {project_id} 不存在"
+            )
+        
+        # 先尝试调用 update_file，如果文件不存在则调用 create_file
+        try:
+            file_record = await project_file_service.update_file(
+                project_id=project_id,
+                relative_path=file_data.path,
+                content=file_data.content
+            )
+        except FileNotFoundError:
+            # 文件不存在，创建新文件
+            file_record = await project_file_service.create_file(
+                project_id=project_id,
+                relative_path=file_data.path,
+                content=file_data.content
+            )
+        
+        # 返回成功消息和文件元数据（size、hash）
+        return {
+            "message": "文件已保存",
+            "path": file_data.path,
+            "size": file_record.file_size,
+            "hash": file_record.file_hash
+        }
     except ValueError as e:
+        # 文件过大返回 400
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
@@ -291,16 +360,37 @@ async def create_directory(
 ):
     """
     📂 在项目中创建目录
+    
+    在数据库中创建目录记录
     """
+    from ansible_web_ui.services.project_file_service import ProjectFileService
+    
     project_service = ProjectService(db)
+    project_file_service = ProjectFileService(db)
     
     try:
-        await project_service.create_directory_in_project(
+        # 验证项目存在
+        project = await project_service.get_by_id(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"项目 {project_id} 不存在"
+            )
+        
+        # 调用 ProjectFileService.create_directory 方法
+        directory = await project_file_service.create_directory(
             project_id=project_id,
             relative_path=dir_data.path
         )
-        return {"message": "目录创建成功", "path": dir_data.path}
+        
+        # 返回成功消息和创建的目录信息
+        return {
+            "message": "目录已创建",
+            "path": dir_data.path,
+            "name": directory.filename
+        }
     except ValueError as e:
+        # 路径不合法返回 400
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
@@ -316,26 +406,50 @@ async def move_file(
 ):
     """
     🔄 在项目中移动文件
+    
+    更新数据库中的文件路径
     """
+    from ansible_web_ui.services.project_file_service import ProjectFileService
+    
     project_service = ProjectService(db)
+    project_file_service = ProjectFileService(db)
     
     try:
-        await project_service.move_file_in_project(
+        # 验证项目存在
+        project = await project_service.get_by_id(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"项目 {project_id} 不存在"
+            )
+        
+        # 调用 ProjectFileService.move_file 方法
+        success = await project_file_service.move_file(
             project_id=project_id,
-            source_relative=move_data.source,
-            dest_relative=move_data.destination
+            source_path=move_data.source,
+            dest_path=move_data.destination
         )
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="文件移动失败"
+            )
+        
+        # 返回成功消息
         return {
-            "message": "文件移动成功",
+            "message": "文件已移动",
             "source": move_data.source,
             "destination": move_data.destination
         }
     except ValueError as e:
+        # 目标已存在返回 400
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except FileNotFoundError as e:
+        # 源文件不存在返回 404
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
@@ -351,21 +465,42 @@ async def delete_file(
 ):
     """
     🗑️ 删除项目中的文件或目录
+    
+    从数据库中删除文件记录（会自动处理目录递归删除）
     """
+    from ansible_web_ui.services.project_file_service import ProjectFileService
+    
     project_service = ProjectService(db)
+    project_file_service = ProjectFileService(db)
     
     try:
-        await project_service.delete_file_in_project(
+        # 验证项目存在
+        project = await project_service.get_by_id(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"项目 {project_id} 不存在"
+            )
+        
+        # 调用 ProjectFileService.delete_file 方法（会自动处理目录递归删除）
+        deleted_count = await project_file_service.delete_file(
             project_id=project_id,
             relative_path=path
         )
-        return {"message": "删除成功", "path": path}
+        
+        # 返回成功消息和删除的文件数量
+        return {
+            "message": "删除成功",
+            "path": path,
+            "deleted_count": deleted_count
+        }
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except FileNotFoundError as e:
+        # 文件不存在返回 404
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)

@@ -13,6 +13,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { projectService } from '../../services/projectService';
 import type { Project, ProjectCreate } from '../../types/project';
+import { extractErrorMessage } from '../../utils/errorHandler';
 
 interface ProjectWizardProps {
   isOpen: boolean;
@@ -69,6 +70,25 @@ export const ProjectWizard: React.FC<ProjectWizardProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // 🔄 当对话框关闭时重置表单
+  React.useEffect(() => {
+    if (!isOpen) {
+      // 延迟重置，等待关闭动画完成
+      const timer = setTimeout(() => {
+        setFormData({
+          name: '',
+          display_name: '',
+          description: '',
+          project_type: 'standard',
+          template: 'standard',
+        });
+        setStep(1);
+        setError('');
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
+
   const handleNext = () => {
     if (step < 3) {
       setStep(step + 1);
@@ -88,19 +108,9 @@ export const ProjectWizard: React.FC<ProjectWizardProps> = ({
       
       const project = await projectService.createProject(formData);
       onComplete(project);
-      onClose();
-      
-      // 重置表单
-      setFormData({
-        name: '',
-        display_name: '',
-        description: '',
-        project_type: 'standard',
-        template: 'standard',
-      });
-      setStep(1);
+      onClose(); // 关闭对话框，useEffect 会自动重置表单
     } catch (err: any) {
-      setError(err.response?.data?.detail || '创建项目失败');
+      setError(extractErrorMessage(err, '创建项目失败'));
     } finally {
       setLoading(false);
     }

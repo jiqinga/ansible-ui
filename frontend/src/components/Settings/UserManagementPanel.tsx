@@ -29,6 +29,7 @@ import GlassSelect from '../UI/GlassSelect'
 import GlassModal from '../UI/GlassModal'
 import GlassTable from '../UI/GlassTable'
 import { useNotification } from '../../contexts/NotificationContext'
+import { extractErrorMessage } from '../../utils/errorHandler'
 import { 
   UserManagementService, 
   UserInfo, 
@@ -147,7 +148,7 @@ const UserManagementPanel: React.FC<UserManagementPanelProps> = () => {
       loadUserStats()
     } catch (err: any) {
       console.error('❌ 创建用户失败:', err)
-      showError(err.response?.data?.detail || '创建用户失败')
+      showError(extractErrorMessage(err, '创建用户失败'))
     }
   }
 
@@ -173,7 +174,7 @@ const UserManagementPanel: React.FC<UserManagementPanelProps> = () => {
       loadUserStats()
     } catch (err: any) {
       console.error('❌ 更新用户失败:', err)
-      showError(err.response?.data?.detail || '更新用户失败')
+      showError(extractErrorMessage(err, '更新用户失败'))
     }
   }
 
@@ -192,7 +193,7 @@ const UserManagementPanel: React.FC<UserManagementPanelProps> = () => {
       loadUserStats()
     } catch (err: any) {
       console.error('❌ 删除用户失败:', err)
-      showError(err.response?.data?.detail || '删除用户失败')
+      showError(extractErrorMessage(err, '删除用户失败'))
     }
   }
 
@@ -210,7 +211,7 @@ const UserManagementPanel: React.FC<UserManagementPanelProps> = () => {
       setNewPassword('')
     } catch (err: any) {
       console.error('❌ 重置密码失败:', err)
-      showError(err.response?.data?.detail || '重置密码失败')
+      showError(extractErrorMessage(err, '重置密码失败'))
     }
   }
 
@@ -230,7 +231,7 @@ const UserManagementPanel: React.FC<UserManagementPanelProps> = () => {
       loadUserStats()
     } catch (err: any) {
       console.error('❌ 切换用户状态失败:', err)
-      showError(err.response?.data?.detail || '操作失败')
+      showError(extractErrorMessage(err, '操作失败'))
     }
   }
 

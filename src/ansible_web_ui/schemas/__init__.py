@@ -9,6 +9,7 @@ from .host_group_schemas import *
 from .playbook_schemas import *
 from .config_schemas import *
 from .logging_schemas import *
+from .project_file_schemas import *
 
 __all__ = [
     # 主机相关模式
@@ -73,5 +74,11 @@ __all__ = [
     # 日志模块
     "LogEntrySchema",
     "LogQueryFilters",
-    "LogQueryResponse"
+    "LogQueryResponse",
+    
+    # 项目文件相关模式
+    "ProjectFileBase",
+    "ProjectFileInfo",
+    "ProjectFileContent",
+    "FileTreeNode"
 ]

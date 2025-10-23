@@ -5,7 +5,7 @@ Playbook管理API端点
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status, Response
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,12 +63,20 @@ async def browse_playbook_files(
 
 @router.get("/content", summary="获取文件内容")
 async def get_file_content(
+    response: Response,
     path: str = Query(..., description="文件路径"),
     current_user: User = Depends(get_current_user)
 ):
     """
     获取指定文件的内容
+    
+    设置 Cache-Control: no-cache 防止浏览器缓存
     """
+    # 🔧 禁用浏览器缓存
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    
     file_service = FileService()
     
     try:
@@ -250,13 +258,21 @@ async def get_playbook(
 
 @router.get("/{playbook_id}/content", response_model=PlaybookContent, summary="获取Playbook内容")
 async def get_playbook_content(
+    response: Response,
     playbook_id: int,
     db: AsyncSession = Depends(get_async_db_session),
     current_user: User = Depends(get_current_user)
 ):
     """
     获取Playbook的文件内容
+    
+    设置 Cache-Control: no-cache 防止浏览器缓存，确保每次都获取最新内容
     """
+    # 🔧 禁用浏览器缓存，确保每次都获取最新内容
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    
     service = PlaybookService(db)
     
     try:
@@ -273,13 +289,21 @@ async def get_playbook_content(
 
 @router.get("/{playbook_id}/raw", response_class=PlainTextResponse, summary="获取Playbook原始内容")
 async def get_playbook_raw_content(
+    response: Response,
     playbook_id: int,
     db: AsyncSession = Depends(get_async_db_session),
     current_user: User = Depends(get_current_user)
 ):
     """
     获取Playbook的原始文件内容（纯文本格式）
+    
+    设置 Cache-Control: no-cache 防止浏览器缓存
     """
+    # 🔧 禁用浏览器缓存
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    
     service = PlaybookService(db)
     
     try:

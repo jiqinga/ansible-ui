@@ -25,8 +25,8 @@ export default defineConfig(({ mode }) => {
   const backendPort = env.VITE_BACKEND_PORT || '8000'
   const localIP = getLocalIP()
   
-  // 🎯 使用本机IP构建后端地址
-  const backendTarget = `http://${localIP}:${backendPort}`
+  // 🎯 使用 localhost 构建后端地址（用于开发环境）
+  const backendTarget = `http://127.0.0.1:${backendPort}`
   
   console.log(`🌐 前端服务: http://${localIP}:3000`)
   console.log(`🔗 后端代理: ${backendTarget}`)

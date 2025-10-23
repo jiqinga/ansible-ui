@@ -90,7 +90,7 @@ def _build_pre_chain() -> list[structlog.types.Processor]:
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso", key="timestamp"),
+        structlog.processors.TimeStamper(fmt="iso", key="timestamp", utc=False),
         CallsiteParameterAdder(
             parameters=[
                 CallsiteParameter.MODULE,

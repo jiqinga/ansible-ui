@@ -11,7 +11,7 @@ from fastapi import HTTPException, UploadFile
 from ansible_web_ui.models.playbook import Playbook
 from ansible_web_ui.services.base import BaseService
 from ansible_web_ui.services.file_service import FileService
-from ansible_web_ui.services.file_cache_service import FileCacheService
+
 from ansible_web_ui.services.playbook_validation_service import PlaybookValidationService
 from ansible_web_ui.schemas.playbook_schemas import (
     PlaybookCreate, PlaybookUpdate, PlaybookInfo, PlaybookContent,
@@ -36,7 +36,6 @@ class PlaybookService(BaseService[Playbook]):
         """
         super().__init__(Playbook, db_session)
         self.file_service = FileService()
-        self.cache_service = FileCacheService()
         self.validation_service = PlaybookValidationService()
     
     async def create_playbook(
@@ -69,15 +68,16 @@ class PlaybookService(BaseService[Playbook]):
             # 准备内容（如果没有提供内容，创建空文件）
             content = playbook_data.content if playbook_data.content is not None else ""
             
-            # 计算哈希值和大小
-            file_hash = self.cache_service.calculate_hash(content)
+            # 直接计算哈希值和大小
+            import hashlib
+            file_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
             file_size = len(content.encode('utf-8'))
             
-            # 创建数据库记录（内容存储在数据库中）
+            # 创建数据库记录
             playbook_dict = playbook_data.model_dump(exclude={'content', 'path'})
             playbook_dict.update({
-                'file_content': content,  # 存储到数据库
-                'file_path': None,  # 缓存路径，初始为空
+                'file_content': content,
+                'file_path': None,
                 'file_size': file_size,
                 'file_hash': file_hash
             })
@@ -86,12 +86,6 @@ class PlaybookService(BaseService[Playbook]):
                 playbook_dict['created_by'] = user_id
             
             playbook = await self.create(**playbook_dict)
-            
-            # 异步写入缓存（失败不影响主流程）
-            try:
-                await self.cache_service.save_to_cache(playbook_data.filename, content)
-            except Exception:
-                pass  # 缓存写入失败不影响主流程
             
             return PlaybookInfo.model_validate(playbook)
             
@@ -135,9 +129,7 @@ class PlaybookService(BaseService[Playbook]):
     
     async def get_playbook_content(self, playbook_id: int) -> PlaybookContent:
         """
-        获取Playbook文件内容
-        
-        优先从缓存读取，缓存未命中则从数据库读取并更新缓存。
+        获取Playbook文件内容（直接从数据库读取）
         
         Args:
             playbook_id: Playbook ID
@@ -146,7 +138,7 @@ class PlaybookService(BaseService[Playbook]):
             PlaybookContent: Playbook内容信息
             
         Raises:
-            HTTPException: Playbook不存在或读取失败时抛出异常
+            HTTPException: Playbook不存在时抛出异常
         """
         playbook = await self.get_by_id(playbook_id)
         if not playbook:
@@ -155,37 +147,13 @@ class PlaybookService(BaseService[Playbook]):
                 detail="Playbook不存在"
             )
         
-        try:
-            # 1. 尝试从缓存读取
-            content = await self.cache_service.get_from_cache(
-                playbook.filename,
-                playbook.file_hash
-            )
-            
-            # 2. 缓存未命中，从数据库读取
-            if content is None:
-                content = playbook.file_content or ""
-                
-                # 更新缓存（异步，失败不影响主流程）
-                try:
-                    await self.cache_service.save_to_cache(playbook.filename, content)
-                except Exception:
-                    pass
-            
-            return PlaybookContent(
-                filename=playbook.filename,
-                content=content,
-                file_size=playbook.file_size,
-                last_modified=playbook.updated_at.isoformat() if playbook.updated_at else None
-            )
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"读取Playbook内容失败: {str(e)}"
-            )
+        # 直接从数据库读取内容
+        return PlaybookContent(
+            filename=playbook.filename,
+            content=playbook.file_content or "",
+            file_size=playbook.file_size,
+            last_modified=playbook.updated_at.isoformat() if playbook.updated_at else None
+        )
     
     async def update_playbook(
         self, 
@@ -212,43 +180,30 @@ class PlaybookService(BaseService[Playbook]):
                 detail="Playbook不存在"
             )
         
-        try:
-            update_dict = playbook_data.model_dump(exclude_unset=True, exclude={'content'})
+        # 准备更新数据
+        update_dict = playbook_data.model_dump(exclude_unset=True, exclude={'content'})
+        
+        # 如果提供了内容，更新数据库
+        if playbook_data.content is not None:
+            content = playbook_data.content
             
-            # 如果提供了内容，更新数据库和缓存
-            if playbook_data.content is not None:
-                content = playbook_data.content
-                
-                # 计算新的哈希值和大小
-                file_hash = self.cache_service.calculate_hash(content)
-                file_size = len(content.encode('utf-8'))
-                
-                update_dict.update({
-                    'file_content': content,  # 更新数据库中的内容
-                    'file_size': file_size,
-                    'file_hash': file_hash
-                })
-                
-                # 更新缓存（异步，失败不影响主流程）
-                try:
-                    await self.cache_service.save_to_cache(playbook.filename, content)
-                except Exception:
-                    pass
+            # 直接计算哈希值和大小
+            import hashlib
+            file_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+            file_size = len(content.encode('utf-8'))
             
-            # 更新数据库记录
-            updated_playbook = await self.update(playbook_id, **update_dict)
-            
-            if updated_playbook:
-                return PlaybookInfo.model_validate(updated_playbook)
-            return None
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"更新Playbook失败: {str(e)}"
-            )
+            update_dict.update({
+                'file_content': content,
+                'file_size': file_size,
+                'file_hash': file_hash
+            })
+        
+        # 更新数据库记录
+        updated_playbook = await self.update(playbook_id, **update_dict)
+        
+        if updated_playbook:
+            return PlaybookInfo.model_validate(updated_playbook)
+        return None
     
     async def delete_playbook(self, playbook_id: int) -> bool:
         """
@@ -271,13 +226,7 @@ class PlaybookService(BaseService[Playbook]):
             )
         
         try:
-            # 删除缓存（异步，失败不影响主流程）
-            try:
-                await self.cache_service.remove_from_cache(playbook.filename)
-            except Exception:
-                pass
-            
-            # 删除数据库记录
+            # 直接删除数据库记录
             success = await self.delete(playbook_id)
             
             return success
@@ -454,82 +403,68 @@ class PlaybookService(BaseService[Playbook]):
                 detail="文件名不能为空"
             )
         
+        # 读取上传的文件内容
+        content = await file.read()
+        content_str = content.decode('utf-8')
+        
+        # 直接计算哈希值和大小
+        import hashlib
+        file_hash = hashlib.sha256(content_str.encode('utf-8')).hexdigest()
+        file_size = len(content)
+        
+        # 检查是否已存在同名记录
+        existing = await self.get_by_filename(file.filename)
+        
+        # 验证内容
+        validation_result = None
         try:
-            # 读取上传的文件内容
-            content = await file.read()
-            content_str = content.decode('utf-8')
-            
-            # 计算哈希值和大小
-            file_hash = self.cache_service.calculate_hash(content_str)
-            file_size = len(content)
-            
-            # 检查是否已存在同名记录
-            existing = await self.get_by_filename(file.filename)
-            
-            # 验证内容
-            validation_result = None
-            try:
-                validation_result = self.validation_service.validate_playbook_content(content_str)
-            except Exception:
-                validation_result = PlaybookValidationResult(
-                    is_valid=False,
-                    errors=[ValidationIssue(
-                        line=0,
-                        column=0,
-                        message="验证过程中发生错误",
-                        severity='error'
-                    )],
-                    warnings=[],
-                    syntax_errors=[]
-                )
-            
-            error_messages = [error.message for error in validation_result.errors] if validation_result.errors else []
-            
-            if existing:
-                # 更新现有记录
-                update_data = {
-                    'file_content': content_str,  # 更新数据库中的内容
-                    'file_size': file_size,
-                    'file_hash': file_hash,
-                    'is_valid': validation_result.is_valid,
-                    'validation_error': '; '.join(error_messages) if error_messages else None
-                }
-                await self.update(existing.id, **update_data)
-            else:
-                # 创建新记录
-                playbook_data = {
-                    'filename': file.filename,
-                    'file_content': content_str,  # 存储到数据库
-                    'file_path': None,
-                    'file_size': file_size,
-                    'file_hash': file_hash,
-                    'is_valid': validation_result.is_valid,
-                    'validation_error': '; '.join(error_messages) if error_messages else None,
-                    'created_by': user_id
-                }
-                await self.create(**playbook_data)
-            
-            # 更新缓存（异步，失败不影响主流程）
-            try:
-                await self.cache_service.save_to_cache(file.filename, content_str)
-            except Exception:
-                pass
-            
-            return PlaybookUploadResponse(
-                filename=file.filename,
-                file_size=file_size,
-                upload_path=None,  # 不再使用文件路径
-                is_valid=validation_result.is_valid if validation_result else False,
-                validation_result=validation_result
+            validation_result = self.validation_service.validate_playbook_content(content_str)
+        except Exception:
+            validation_result = PlaybookValidationResult(
+                is_valid=False,
+                errors=[ValidationIssue(
+                    line=0,
+                    column=0,
+                    message="验证过程中发生错误",
+                    severity='error'
+                )],
+                warnings=[],
+                syntax_errors=[]
             )
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"上传Playbook失败: {str(e)}"
-            )
+        
+        error_messages = [error.message for error in validation_result.errors] if validation_result.errors else []
+        
+        if existing:
+            # 更新现有记录
+            update_data = {
+                'file_content': content_str,
+                'file_size': file_size,
+                'file_hash': file_hash,
+                'is_valid': validation_result.is_valid,
+                'validation_error': '; '.join(error_messages) if error_messages else None
+            }
+            await self.update(existing.id, **update_data)
+        else:
+            # 创建新记录
+            playbook_data = {
+                'filename': file.filename,
+                'file_content': content_str,
+                'file_path': None,
+                'file_size': file_size,
+                'file_hash': file_hash,
+                'is_valid': validation_result.is_valid,
+                'validation_error': '; '.join(error_messages) if error_messages else None,
+                'created_by': user_id
+            }
+            await self.create(**playbook_data)
+        
+        return PlaybookUploadResponse(
+            filename=file.filename,
+            file_size=file_size,
+            upload_path=None,
+            is_valid=validation_result.is_valid if validation_result else False,
+            validation_result=validation_result
+        )
     
     async def copy_playbook(
         self, 
@@ -567,45 +502,31 @@ class PlaybookService(BaseService[Playbook]):
                 detail=f"文件名已存在: {new_filename}"
             )
         
-        try:
-            # 复制内容（从数据库）
-            content = source_playbook.file_content or ""
-            
-            # 计算新的哈希值和大小
-            file_hash = self.cache_service.calculate_hash(content)
-            file_size = len(content.encode('utf-8'))
-            
-            # 创建新的数据库记录
-            new_playbook_data = {
-                'filename': new_filename,
-                'display_name': f"{source_playbook.display_name or source_playbook.filename} (副本)",
-                'description': source_playbook.description,
-                'file_content': content,  # 复制内容到数据库
-                'file_path': None,
-                'file_size': file_size,
-                'file_hash': file_hash,
-                'is_valid': source_playbook.is_valid,
-                'validation_error': source_playbook.validation_error,
-                'created_by': user_id
-            }
-            
-            new_playbook = await self.create(**new_playbook_data)
-            
-            # 更新缓存（异步，失败不影响主流程）
-            try:
-                await self.cache_service.save_to_cache(new_filename, content)
-            except Exception:
-                pass
-            
-            return PlaybookInfo.model_validate(new_playbook)
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"复制Playbook失败: {str(e)}"
-            )
+        # 复制内容（从数据库）
+        content = source_playbook.file_content or ""
+        
+        # 直接计算哈希值和大小
+        import hashlib
+        file_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+        file_size = len(content.encode('utf-8'))
+        
+        # 创建新的数据库记录
+        new_playbook_data = {
+            'filename': new_filename,
+            'display_name': f"{source_playbook.display_name or source_playbook.filename} (副本)",
+            'description': source_playbook.description,
+            'file_content': content,
+            'file_path': None,
+            'file_size': file_size,
+            'file_hash': file_hash,
+            'is_valid': source_playbook.is_valid,
+            'validation_error': source_playbook.validation_error,
+            'created_by': user_id
+        }
+        
+        new_playbook = await self.create(**new_playbook_data)
+        
+        return PlaybookInfo.model_validate(new_playbook)
     
     async def get_playbook_stats(self) -> Dict[str, Any]:
         """
@@ -826,14 +747,15 @@ class PlaybookService(BaseService[Playbook]):
             # 先验证内容
             validation_result = self.validation_service.validate_playbook_content(content)
             
-            # 计算哈希值和大小
-            file_hash = self.cache_service.calculate_hash(content)
+            # 直接计算哈希值和大小
+            import hashlib
+            file_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
             file_size = len(content.encode('utf-8'))
             
             # 更新数据库记录
             error_messages = [error.message for error in validation_result.errors] if validation_result.errors else []
             update_data = {
-                'file_content': content,  # 更新数据库中的内容
+                'file_content': content,
                 'file_size': file_size,
                 'file_hash': file_hash,
                 'is_valid': validation_result.is_valid,
@@ -841,12 +763,6 @@ class PlaybookService(BaseService[Playbook]):
             }
             
             updated_playbook = await self.update(playbook_id, **update_data)
-            
-            # 更新缓存（异步，失败不影响主流程）
-            try:
-                await self.cache_service.save_to_cache(playbook.filename, content)
-            except Exception:
-                pass
             
             playbook_info = None
             if updated_playbook:

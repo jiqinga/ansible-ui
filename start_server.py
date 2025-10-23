@@ -70,8 +70,8 @@ def main():
     print(f"🚀 启动服务器...")
     print(f"📍 地址: http://{host}:{port}")
     print(f"🔄 热重载: {'启用' if reload else '禁用'}")
-    print(f"📚 API文档: http://{host}:{port}/docs")
-    print(f"📖 ReDoc文档: http://{host}:{port}/redoc")
+    print(f"📚 API文档: http://{host}:{port}/api/docs")
+    print(f"📖 ReDoc文档: http://{host}:{port}/api/redoc")
     print("=" * 60)
     print("\n💡 按 Ctrl+C 停止服务器\n")
     

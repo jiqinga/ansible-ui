@@ -16,6 +16,7 @@ export const Projects: React.FC = () => {
   const [activeTabId, setActiveTabId] = useState<string>('');
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0); // 🔄 刷新触发器
 
   const handleFileSelect = async (file: FileNode) => {
     if (file.type !== 'file' || !selectedProject) return;
@@ -98,6 +99,8 @@ export const Projects: React.FC = () => {
 
   const handleProjectComplete = (project: Project) => {
     setSelectedProject(project);
+    // 🔄 触发项目列表刷新
+    setRefreshTrigger(prev => prev + 1);
   };
 
   return (
@@ -128,6 +131,7 @@ export const Projects: React.FC = () => {
           <ProjectExplorer
             onFileSelect={handleFileSelect}
             onProjectChange={setSelectedProject}
+            refreshTrigger={refreshTrigger}
           />
         </div>
 
